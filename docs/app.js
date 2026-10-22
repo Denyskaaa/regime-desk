@@ -456,13 +456,20 @@
   }
   function unitLabel(u) { return u === "% y/y" || u === "% m/m" || u === "% ann." ? u : u; }
 
+  function periodLabel(r) {  // FRED dates monthly/quarterly data on the first day of the period
+    const [y, m] = r.date.split("-").map(Number);
+    if (r.freq === "quarterly") return `Q${Math.floor((m - 1) / 3) + 1} ${y}`;
+    if (r.freq === "monthly") return `${MON[m - 1]} ${y}`;
+    return fmtDate(r.date, true);
+  }
+
   function macroRow(r) {
     const rate = (r.unit === "%" || r.unit === "pp") && r.freq === "daily";
     const alt = r.alt ? ` · ${r.alt.label} ${num(r.alt.value, r.dp)}${r.alt.unit === "%" ? "%" : r.alt.unit}` : "";
     const status = r.status ? `<span class="chip ${r.status}">${r.status}</span>` : `<span></span>`;
     const col = r.good ? `var(--${goodCls((sparkPts(r).slice(-1)[0] ?? 0) - (sparkPts(r)[0] ?? 0), r.good)})` : "var(--q-value)";
     return `<div class="mrow"><button type="button" aria-expanded="false" data-id="${esc(r.id)}">
-        <span class="mname"><span class="nm">${esc(r.name)}</span><span class="meta">${r.freq} · ${fmtDate(r.date, true)}${alt}</span></span>
+        <span class="mname"><span class="nm">${esc(r.name)}</span><span class="meta">${r.freq} · ${periodLabel(r)}${alt}</span></span>
         <span class="mval">${num(r.last, r.dp)}<span class="u">${esc(unitLabel(r.unit))}</span></span>
         <span class="mchg ${rate ? dir(Math.round(r.chg * 100)) : goodCls(r.chg, r.good, r.dp)}">${rate ? signed(r.chg * 100, 0, "bp") : signed(r.chg, r.dp)}<span class="l">${esc(r.chg_label)}</span></span>
         ${status}

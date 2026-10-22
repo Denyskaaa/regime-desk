@@ -164,7 +164,7 @@ MACRO_GROUPS = [
         dict(id="AWHAETP", name="Average weekly hours", transform="level", unit="hrs", dp=1, good="up"),
         dict(id="JTSJOL", name="JOLTS job openings", transform="level", unit="m", dp=2, good="up", scale=1e-3),
         dict(id="JTSQUL", name="JOLTS quits", transform="level", unit="m", dp=2, good="up", scale=1e-3),
-        dict(id="ADPMNUSNERSA", name="ADP private employment", transform="diff", unit="k m/m", dp=0, good="up"),
+        dict(id="ADPMNUSNERSA", name="ADP private employment", transform="diff", unit="k m/m", dp=0, good="up", scale=1e-3),
     ]),
     ("Consumption", "Household income and spending", [
         dict(id="RSAFS", name="Retail sales", transform="mom", unit="% m/m", dp=1, good="up"),
