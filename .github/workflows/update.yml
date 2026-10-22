@@ -2,9 +2,9 @@ name: Update data and deploy
 
 on:
   schedule:
-    - cron: "*/30 13-21 * * 1-5"  # every 30 min across US trading hours (UTC; covers EDT and EST)
+    - cron: "7,37 13-21 * * 1-5"  # every 30 min across US trading hours (UTC; covers EDT and EST)
     - cron: "15 22 * * 1-5"       # once more after the close
-    - cron: "0 15 * * 6"          # Saturday: crypto and any late macro releases
+    - cron: "7 15 * * 6"          # Saturday: crypto and any late macro releases
   workflow_dispatch:
     inputs:
       force_macro:
