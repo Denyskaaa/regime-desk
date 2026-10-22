@@ -21,6 +21,12 @@ DATA = os.path.join(ROOT, "data")
 FRED_DIR = os.path.join(DATA, "fred")
 PRICES_CSV = os.path.join(DATA, "prices.csv")
 UA = {"User-Agent": "Mozilla/5.0 (regime-desk; +https://github.com)"}
+BROWSER = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                  "Chrome/126.0 Safari/537.36",
+    "Accept": "text/csv,text/plain,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+}
 FRED_START = "2010-01-01"
 
 
@@ -122,18 +128,58 @@ def _fred_api(sid, key):
 
 def _fred_csv(sid):
     r = requests.get("https://fred.stlouisfed.org/graph/fredgraph.csv",
-                     params={"id": sid, "cosd": FRED_START}, headers=UA, timeout=30)
+                     params={"id": sid, "cosd": FRED_START}, headers=BROWSER, timeout=30)
     r.raise_for_status()
+    head = r.text.lstrip()[:200]
+    if head.startswith("<") or "," not in head.split("\n", 1)[0]:
+        snippet = " ".join(head.split())[:160]
+        raise ValueError(f"FRED sent a web page instead of CSV (HTTP {r.status_code}): {snippet}")
     df = pd.read_csv(io.StringIO(r.text), na_values=[".", ""])
     df.columns = ["date", "value"]
     s = pd.Series(df["value"].values, index=pd.to_datetime(df["date"]), dtype="float64").dropna()
     return s
 
 
+# --------------------------------------------------- Treasury fallback ---
+# If FRED is unreachable, rebuild the rate series the regime map needs from
+# the Treasury's own daily yield-curve files (no key needed).
+TSY_URL = ("https://home.treasury.gov/resource-center/data-chart-center/interest-rates/"
+           "daily-treasury-rates.csv/{y}/all")
+
+
+def _tsy_year(kind, year):
+    r = requests.get(TSY_URL.format(y=year), headers=BROWSER, timeout=40,
+                     params={"type": kind, "field_tdr_date_value": year, "page": "", "_format": "csv"})
+    r.raise_for_status()
+    df = pd.read_csv(io.StringIO(r.text))
+    df["Date"] = pd.to_datetime(df["Date"], format="mixed")
+    return df.set_index("Date").sort_index()
+
+
+def fetch_treasury(years=7):
+    this = datetime.now(timezone.utc).year
+    nom, real = [], []
+    for y in range(this - years, this + 1):
+        nom.append(_tsy_year("daily_treasury_yield_curve", y))
+        real.append(_tsy_year("daily_treasury_real_yield_curve", y))
+        time.sleep(0.3)
+    n = pd.concat(nom).sort_index()
+    rl = pd.concat(real).sort_index()
+    n = n[~n.index.duplicated(keep="last")]
+    rl = rl[~rl.index.duplicated(keep="last")]
+    col = lambda df, *names: next(df[c] for c in df.columns if c.strip().lower() in names)
+    y3m, y2, y10 = col(n, "3 mo"), col(n, "2 yr"), col(n, "10 yr")
+    r10 = col(rl, "10 yr")
+    return {
+        "DGS2": y2, "DGS10": y10, "DFII10": r10,
+        "T10Y2Y": y10 - y2, "T10Y3M": y10 - y3m, "T10YIE": (y10 - r10),
+    }
+
+
 def fetch_fred():
     key = os.environ.get("FRED_API_KEY", "").strip()
     os.makedirs(FRED_DIR, exist_ok=True)
-    errors = []
+    errors, failed = [], []
     for sid in config.all_fred_series():
         for attempt in range(2):
             try:
@@ -146,8 +192,24 @@ def fetch_fred():
             except Exception as e:
                 if attempt == 1:
                     errors.append(f"{sid}: {e}")
+                    failed.append(sid)
                 time.sleep(1.5)
         time.sleep(0.25)
+        # If the first few series all fail the same way, FRED is blocking us; stop early
+        if len(failed) >= 4 and len(failed) == len(errors) and failed == config.all_fred_series()[:len(failed)]:
+            errors.append("FRED unreachable; skipped the remaining series")
+            break
+    tsy_needed = [k for k in ("DGS2", "DGS10", "DFII10", "T10Y2Y", "T10Y3M", "T10YIE") if k in failed
+                  or not os.path.exists(os.path.join(FRED_DIR, f"{k}.csv"))]
+    if tsy_needed or len(failed) >= 4:
+        try:
+            for sid, s in fetch_treasury().items():
+                if sid in failed or sid in tsy_needed:
+                    s.dropna().rename("value").to_frame().rename_axis("date").to_csv(
+                        os.path.join(FRED_DIR, f"{sid}.csv"), float_format="%.6g")
+            errors.append("Treasury yields filled from home.treasury.gov")
+        except Exception as e:
+            errors.append(f"Treasury fallback failed: {e}")
     return errors
 
 
