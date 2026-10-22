@@ -394,3 +394,43 @@ WINDOWS = {"1M": dict(months=1), "3M": dict(months=3)}
 # of that measure's own typical move over the window (z-score band).
 Z_BAND = 0.3
 Z_STRONG = 1.0
+
+# ---------------------------------------------------------------------------
+# Backtest results (research/backtest.py, run Oct 2026), shown on the site so
+# each call carries its track record. Re-run the research job to refresh them.
+# ---------------------------------------------------------------------------
+DEFAULT_WINDOW = "3M"   # the only look-back with a tested edge; 1M is shown as noisy
+
+BACKTEST = dict(  # the Risk OFF alert: Risk OFF leads the 3-month checklist
+    period="Jul 2008 – Oct 2026",
+    episodes=24, share_of_weeks=13,
+    spx_next3m=-11.6, spx_avg3m=11.4, commodities_next3m=-31.4,
+    cash_cagr=16.5, cash_sharpe=0.94, cash_maxdd=-34,
+    bh_cagr=12.5, bh_sharpe=0.62, bh_maxdd=-47,
+    missed="the COVID crash of early 2020, which was too fast for a 3-month signal",
+)
+
+# Yield-curve shapes over 3-month windows, 1990–2026. "during" = S&P 500 total
+# return while the shape formed; up/down = S&P return over the NEXT 3 months
+# when the S&P was above/below its 200-day average (annualized %, weeks).
+CURVE_AVG = 11.2
+CURVE_FLAT = (12.6, 480)  # weeks with no clear shape (parallel or tiny moves): next-3M S&P, weeks
+CURVE_SHAPES = {
+    "riskon": dict(name="Bull steepener", during=-5.9, up=(12.6, 195), down=(1.2, 145),
+                   up_label="good cuts: stocks holding up", down_label="bad cuts: cutting into weakness",
+                   note="Short rates falling fastest, so the market expects Fed cuts. Your chart calls this "
+                        "Risk ON, but stocks fell on average while it happened, and what came next depended "
+                        "on whether growth was holding up."),
+    "growth": dict(name="Bull flattener", during=9.8, up=(14.8, 299), down=(28.4, 80),
+                   up_label="stocks in an uptrend", down_label="stocks in a downtrend",
+                   note="Long yields falling fastest. Matches the chart's Growth playbook, and the best "
+                        "stretch for stocks afterwards."),
+    "riskoff": dict(name="Bear flattener", during=10.1, up=(6.9, 295), down=(-2.8, 89),
+                    up_label="stocks in an uptrend", down_label="stocks in a downtrend",
+                    note="Short rates rising fastest, so the Fed is tightening. Stocks often keep rising "
+                         "at first; the following 3 months were the weakest of the four shapes."),
+    "value": dict(name="Bear steepener", during=23.2, up=(14.9, 266), down=(10.1, 34),
+                  up_label="stocks in an uptrend", down_label="stocks in a downtrend",
+                  note="Long yields rising fastest: reflation. Matches the chart's Value playbook, and "
+                       "often Risk ON's too."),
+}

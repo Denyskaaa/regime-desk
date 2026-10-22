@@ -204,34 +204,16 @@ def _list(items):
     return ", ".join(items[:-1]) + " and " + items[-1]
 
 
-SIDES = {"right": {"riskon", "value"}, "left": {"growth", "riskoff"},
-         "up": {"growth", "riskon"}, "down": {"riskoff", "value"}}
-
-
-def curve_side(c):
-    """Which part of the map the curve points to: a quadrant, a half, or nothing."""
-    if not c:
-        return None
-    if c["clear"]:
-        return {c["quad"]}
-    if c["clear_slope"]:
-        return SIDES["right" if c["slope"] > 0 else "left"]
-    if c["clear_level"]:
-        return SIDES["up" if c["level"] < 0 else "down"]
-    return None
-
-
-def confidence(res):
-    lead = next(q for q in res["quadrants"] if q["key"] == res["assets"]["leader"])
-    side = curve_side(res["curve"])
-    agree = bool(side and lead["key"] in side)
-    strong = lead["net"] >= 0.3
-    full = bool(res["curve"] and res["curve"]["clear"])
-    if agree and strong and full:
-        return "high", agree
-    if (agree and strong) or (agree and full) or (strong and side is None):
-        return "medium", agree
-    return "low", agree
+def strength(res):
+    """How clear the lead is: descriptive, not a probability."""
+    qs = sorted(res["quadrants"], key=lambda q: (q["net"], q["match"]), reverse=True)
+    lead, second = qs[0], qs[1]
+    margin = lead["net"] - second["net"]
+    if lead["net"] >= 0.4 and margin >= 0.15:
+        return "strong"
+    if lead["net"] >= 0.2 and margin >= 0.05:
+        return "moderate"
+    return "weak"
 
 
 def streak(trail, key):
@@ -244,57 +226,82 @@ def streak(trail, key):
     return n
 
 
-def narrative(win, res, other, trail, macro_rows, fed):
-    wl = "month" if win == "1M" else "3 months"
+def stock_trend(prices, end):
+    """S&P 500 versus its 200-day average: the growth filter that splits the curve shapes."""
+    col = "^GSPC" if "^GSPC" in prices.columns else "SPY"
+    s = prices[col].dropna()
+    s = s[s.index <= end]
+    if len(s) < 200:
+        return None
+    sma, last = float(s.iloc[-200:].mean()), float(s.iloc[-1])
+    return dict(up=bool(last > sma), pct=round((last / sma - 1) * 100, 1))
+
+
+def curve_context(c, tr):
+    """The 3-month curve shape, split by the stock trend, with what followed historically."""
+    if not c:
+        return None
+    out = dict(d2=c["d2"], d10=c["d10"], clear=c["clear"], quad=c["quad"], avg=config.CURVE_AVG,
+               trend=None if tr is None else ("up" if tr["up"] else "down"),
+               trend_pct=None if tr is None else tr["pct"])
+    if not c["clear"]:
+        parallel = c["clear_level"]
+        out.update(shape="Parallel move" if parallel else "No clear move", next3m=config.CURVE_FLAT[0],
+                   weeks=config.CURVE_FLAT[1], parallel=parallel,
+                   note="Yields moved together, so the curve's shape gives no read." if parallel
+                   else "Yields barely moved, so the curve gives no read.")
+        return out
+    info = config.CURVE_SHAPES[c["quad"]]
+    out.update(shape=info["name"], during=info["during"], note=info["note"])
+    if tr is not None:
+        k = "up" if tr["up"] else "down"
+        out.update(next3m=info[k][0], weeks=info[k][1], label=info[f"{k}_label"])
+    return out
+
+
+def alert(trail, res):
+    """Risk OFF alert: Risk OFF leads the 3-month checklist (the one call with a tested edge)."""
+    nets = {q["key"]: q["net"] for q in res["quadrants"]}
+    lead = res["assets"]["leader"]
+    on = lead == "riskoff"
+    weeks = streak(trail, "riskoff") if on else 0
+    ranked = sorted(nets, key=nets.get, reverse=True)
+    return dict(
+        on=on, weeks=weeks, since=trail[-weeks]["date"] if weeks else None,
+        last_on=next((p["date"] for p in reversed(trail) if p["asset_quad"] == "riskoff"), None),
+        net=nets["riskoff"], rank=ranked.index("riskoff") + 1, lead=lead, lead_net=nets[lead],
+        gap=round(nets[lead] - nets["riskoff"], 3),
+        net_4w=trail[-5]["nets"]["riskoff"] if len(trail) >= 5 else None,
+        hist=[dict(date=p["date"], on=p["asset_quad"] == "riskoff", net=p["nets"]["riskoff"],
+                   lead_net=max(p["nets"].values())) for p in trail],
+        track=config.BACKTEST,
+    )
+
+
+def narrative(win, res, other, trail, macro_rows, fed, ctx):
+    wl = "1-month" if win == "1M" else "3-month"
     out = []
-    c = res["curve"]
     qmap = {q["key"]: q for q in res["quadrants"]}
     L = qmap[res["assets"]["leader"]]
     S = qmap[res["assets"]["second"]]
-    conf, agree = confidence(res)
+    st = strength(res)
 
-    if c:
-        moved = "fell" if c["level"] < 0 else "rose"
-        shape = "steepened" if c["slope"] > 0 else "flattened"
-        lead = f"Over the past {wl}, the 2-year yield moved {_bp(c['d2'])} and the 10-year {_bp(c['d10'])}. "
-        if c["clear"]:
-            out.append(lead + f"Yields {moved} and the curve {shape} by {abs(c['slope']):.0f}bp. That is a "
-                       f"**{c['name'].lower()}**, which puts the curve in **{QN[c['quad']]}** on your map.")
-        elif c["clear_slope"]:
-            where = "right, toward Risk ON and Value" if c["slope"] > 0 else "left, toward Growth and Risk OFF"
-            out.append(lead + f"The curve {shape} by {abs(c['slope']):.0f}bp while the overall level barely moved "
-                       f"({_bp(c['level'])} on average). That points **{where}** on your map, "
-                       f"with no clear Fed-policy direction.")
-        elif c["clear_level"]:
-            where = "up, toward Growth and Risk ON" if c["level"] < 0 else "down, toward Risk OFF and Value"
-            out.append(lead + f"Yields {moved} {abs(c['level']):.0f}bp on average with little change in slope. "
-                       f"That points **{where}** on your map, with no clear growth signal.")
-        else:
-            out.append(lead + "That is too small to call, so the curve is not giving a clear signal.")
-
-    out.append(f"Cross-asset check: **{L['name']}** fits best, with {L['match']} of {L['n']} signals confirming "
-               f"and {L['against']} against. {S['name']} is next at {S['match']} of {S['n']}.")
-
-    side = curve_side(c)
-    if side:
-        if agree:
-            out.append(f"The curve and the assets point the same way, so this is a **{conf}-confidence** read.")
-        else:
-            cw = QN[c["quad"]] if c["clear"] else " or ".join(QN[k] for k in sorted(side, key=list(QN).index))
-            out.append(f"The curve points to {cw} but assets lean {L['name']}. Splits like this are common "
-                       f"while a regime is changing, so treat it as **{conf} confidence** until the two line up.")
-    else:
-        out.append(f"With no clear curve signal, the asset checklist is the main evidence (**{conf} confidence**).")
+    if win == "1M":
+        out.append("**1-month view.** These calls change every two weeks on average and showed no forward "
+                   "value in the backtest. Use the 3-month view for decisions.")
+    out.append(f"**{L['name']}** leads the {wl} checklist: {L['match']} of {L['n']} signals confirm and "
+               f"{L['against']} contradict. {S['name']} is next at {S['match']} of {S['n']}. "
+               f"That is a **{st}** lead.")
 
     k = streak(trail, L["key"])
     if k >= 2:
-        out.append(f"On a weekly basis, {L['name']} has been the best fit for {k} straight weeks.")
+        out.append(f"It has been the best fit for {k} straight weeks.")
     elif other and other != L["key"]:
         if win == "1M":
-            out.append(f"Rotation: over 3 months the best fit is {QN[other]}, over 1 month it is {L['name']}. "
-                       f"The market has been moving from {QN[other]} toward {L['name']}.")
+            out.append(f"The 3-month view still says {QN[other]}, so this may be short-term noise.")
         else:
-            out.append(f"The last month on its own looks more like {QN[other]}, so this 3-month read may be fading.")
+            out.append(f"The last month on its own looks more like {QN[other]}; the 1-month view is noisy, "
+                       f"so watch whether that persists.")
 
     conf_sigs = sorted([s for s in L["signals"] if s["status"] == "match"], key=lambda s: -abs(s["z"]))[:3]
     anti = sorted([s for s in L["signals"] if s["status"] == "against"], key=lambda s: -abs(s["z"]))[:2]
@@ -304,20 +311,37 @@ def narrative(win, res, other, trail, macro_rows, fed):
             line += " Pushing against it: " + _list(f"{s['label']} {_val(s)}" for s in anti) + "."
         out.append(line)
 
-    if L["net"] < 0.25:
+    if st == "weak":
         Q = res["quality"]
         out.append(f"No quadrant has a clear lead, which puts the market near the center of your map. "
                    f"There, Quality tends to hold up: {Q['match']} of {Q['n']} quality signals confirm.")
 
-    favors = [lab for k_, lab, e in next(q for q in config.QUADRANTS if q["key"] == L["key"])["signals"]
-              if e == "up" and config.MEASURES[k_]["type"] not in ("yield", "macro")]
-    lags = [lab for k_, lab, e in next(q for q in config.QUADRANTS if q["key"] == L["key"])["signals"]
-            if e == "down" and config.MEASURES[k_]["type"] not in ("yield", "macro")]
+    sigs = next(q for q in config.QUADRANTS if q["key"] == L["key"])["signals"]
+    favors = [lab for k_, lab, e in sigs if e == "up" and config.MEASURES[k_]["type"] not in ("yield", "macro")]
+    lags = [lab for k_, lab, e in sigs if e == "down" and config.MEASURES[k_]["type"] not in ("yield", "macro")]
     play = f"Your map's playbook for {L['name']}: favors {_list(favors)}"
     play += f"; expects weakness in {_list(lags)}." if lags else "."
     out.append(play)
 
-    return dict(paras=out, backdrop=backdrop(macro_rows, fed), confidence=conf, agree=agree)
+    if ctx:
+        if not ctx["clear"] and ctx.get("parallel"):
+            lvl = (ctx["d2"] + ctx["d10"]) / 2
+            out.append(f"Rates backdrop, context only: over 3 months yields {'rose' if lvl > 0 else 'fell'} about "
+                       f"{abs(lvl):.0f}bp across the curve ({_bp(ctx['d2'])} on the 2-year, {_bp(ctx['d10'])} on "
+                       f"the 10-year) with little change in slope, so there is no curve shape to read.")
+        elif not ctx["clear"]:
+            out.append(f"Rates backdrop: the curve barely moved over 3 months ({_bp(ctx['d2'])} on the 2-year, "
+                       f"{_bp(ctx['d10'])} on the 10-year), so it adds no context right now.")
+        elif ctx.get("next3m") is not None:
+            pos = "above" if ctx["trend"] == "up" else "below"
+            out.append(f"Rates backdrop, context only: over 3 months the curve made a **{ctx['shape'].lower()}** "
+                       f"({_bp(ctx['d2'])} on the 2-year, {_bp(ctx['d10'])} on the 10-year) with the S&P "
+                       f"{abs(ctx['trend_pct']):.1f}% {pos} its 200-day average. Since 1990, that combination was "
+                       f"followed by {ctx['next3m']:+.1f}% a year for the S&P over the next 3 months, against "
+                       f"{ctx['avg']:+.1f}% on average.".replace("+-", "−").replace("-", "−")
+                       .replace("200−day", "200-day").replace("2−year", "2-year").replace("10−year", "10-year"))
+
+    return dict(paras=out, backdrop=backdrop(macro_rows, fed), strength=st)
 
 
 def backdrop(rows, fed):
@@ -381,46 +405,30 @@ def build(prices, fred, derived, macro_json):
         fed = dict(ff=ff, y2=y2, spread_bp=round((y2 - ff) * 100, 1))
 
     dates = weekly_dates(prices)
-    results, trails, scales = {}, {}, {}
+    results, trails = {}, {}
     for win, off_kw in config.WINDOWS.items():
         off = pd.DateOffset(**off_kw)
         res = eng.evaluate(end, off)
-        # scale for the curve dot: 95th percentile of moves over 5 years of weekly samples
-        hist_dates = weekly_dates(prices, weeks=260)
-        lv, sl = [], []
-        for d in hist_dates[::2]:
-            c = eng.curve(d, off)
-            if c:
-                lv.append(abs(c["level"])); sl.append(abs(c["slope"]))
-        sx = max(10.0, float(np.percentile(sl, 95))) if sl else 30.0
-        sy = max(10.0, float(np.percentile(lv, 95))) if lv else 30.0
-        scales[win] = dict(x=round(sx, 1), y=round(sy, 1))
         trail = []
         for d in dates:
             r = eng.evaluate(d, off)
-            c = r["curve"]
-            trail.append(dict(
-                date=d.strftime("%Y-%m-%d"),
-                cx=round(float(np.clip(c["slope"] / sx, -1, 1)), 3) if c else None,
-                cy=round(float(np.clip(-c["level"] / sy, -1, 1)), 3) if c else None,
-                curve_quad=c["quad"] if c and c["clear"] else None,
-                ax=r["assets"]["x"], ay=r["assets"]["y"], asset_quad=r["assets"]["leader"],
-                nets={q["key"]: q["net"] for q in r["quadrants"]},
-            ))
-        if res["curve"]:
-            res["curve"]["x"] = round(float(np.clip(res["curve"]["slope"] / sx, -1, 1)), 3)
-            res["curve"]["y"] = round(float(np.clip(-res["curve"]["level"] / sy, -1, 1)), 3)
-        res["scale"] = scales[win]
+            trail.append(dict(date=d.strftime("%Y-%m-%d"), ax=r["assets"]["x"], ay=r["assets"]["y"],
+                              asset_quad=r["assets"]["leader"],
+                              nets={q["key"]: q["net"] for q in r["quadrants"]}))
         results[win], trails[win] = res, trail
 
+    tr = stock_trend(prices, end)
+    ctx = curve_context(results["3M"]["curve"], tr) if "3M" in results else None
     leaders = {w: r["assets"]["leader"] for w, r in results.items()}
-    out = dict(asof=end.strftime("%Y-%m-%d"), fed=fed, windows={})
+    out = dict(asof=end.strftime("%Y-%m-%d"), fed=fed, windows={}, default_window=config.DEFAULT_WINDOW,
+               trend=tr, curve_context=ctx, alert=alert(trails["3M"], results["3M"]),
+               curve_table=[dict(quad=k, chart_label=QN[k], **{x: v for x, v in config.CURVE_SHAPES[k].items()})
+                            for k in ("riskon", "growth", "riskoff", "value")],
+               curve_avg=config.CURVE_AVG)
     for win, res in results.items():
         other = leaders["3M" if win == "1M" else "1M"]
-        res["story"] = narrative(win, res, other, trails[win], rows, fed)
+        res["story"] = narrative(win, res, other, trails[win], rows, fed, ctx)
         res["trail"] = trails[win]
         out["windows"][win] = res
-    out["quadrant_meta"] = [dict(key=q["key"], name=q["name"], curve=q["curve"], pos=q["pos"])
-                            for q in config.QUADRANTS]
     out["band"] = dict(z=config.Z_BAND, strong=config.Z_STRONG)
     return out

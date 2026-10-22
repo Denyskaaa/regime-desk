@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const S = { win: "1M", period: "m1", tab: "overview", data: null, built: null };
+  const S = { win: "3M", period: "m1", tab: "overview", data: null, built: null };
   const QKEYS = ["growth", "riskon", "riskoff", "value"];
   const QNAME = { growth: "Growth", riskon: "Risk ON", riskoff: "Risk OFF", value: "Value", quality: "Quality" };
   const PERIODS = [["d1", "1D"], ["w1", "1W"], ["m1", "1M"], ["m3", "3M"], ["ytd", "YTD"], ["y1", "1Y"]];
@@ -126,9 +126,11 @@
   const CURVES = { // [old short, old long, new short, new long] yields for the little curve icons
     growth: [2.0, 3.0, 1.7, 2.3], riskon: [2.0, 3.0, 1.0, 2.6],
     riskoff: [2.0, 3.0, 2.9, 3.3], value: [2.0, 3.0, 2.2, 3.9],
+    par_up: [1.6, 2.6, 2.4, 3.4], par_down: [2.2, 3.2, 1.4, 2.4], flat: [2.0, 3.0, 2.05, 3.05],
   };
-  function curveIcon(k, x, y) {
+  function curveIcon(k, x, y, color) {
     const w = 58, h = 34, [os, ol, ns, nl] = CURVES[k];
+    const col = color || `var(--q-${k})`;
     const Yv = (v) => y + h - 4 - ((v - 0.8) / 3.3) * (h - 8);
     const path = (s, l) => {
       let d = "";
@@ -141,8 +143,9 @@
     return `<g aria-hidden="true">
       <path d="M${x + 4},${y} V${y + h} H${x + w}" fill="none" stroke="var(--ink-3)" stroke-width="1.2"/>
       <path d="${path(os, ol)}" fill="none" stroke="var(--ink-3)" stroke-width="1.4" stroke-dasharray="3 2"/>
-      <path d="${path(ns, nl)}" fill="none" stroke="var(--q-${k})" stroke-width="2.2"/></g>`;
+      <path d="${path(ns, nl)}" fill="none" stroke="${col}" stroke-width="2.2"/></g>`;
   }
+  const iconSVG = (k, color) => `<svg class="ci" width="62" height="38" viewBox="0 0 62 38" aria-hidden="true">${curveIcon(k, 0, 2, color)}</svg>`;
 
   function tapeSVG(k, label, x, y, anchor) {
     const w = label.length * 9.4 + 18, hh = 25;
@@ -155,7 +158,7 @@
   function mapSVG(reg, W) {
     const C = 260, H = 206, K = 0.9;
     const P = (x, y) => [C + x * H * K, C - y * H * K];
-    const lead = W.assets.leader, curveQ = W.curve && W.curve.clear ? W.curve.quad : null;
+    const lead = W.assets.leader;
     let g = "";
     const corners = { growth: [-1, 1], riskon: [1, 1], riskoff: [-1, -1], value: [1, -1] };
     for (const k of QKEYS) {
@@ -163,22 +166,10 @@
       g += `<rect x="${sx < 0 ? C - H : C}" y="${sy > 0 ? C - H : C}" width="${H}" height="${H}" fill="var(--q-${k})" fill-opacity="${k === lead ? 0.14 : 0.05}"/>`;
     }
     g += `<rect x="${C - H}" y="${C - H}" width="${2 * H}" height="${2 * H}" fill="none" stroke="var(--line)"/>`;
-    // ticks in basis points
-    const sc = W.scale || { x: 30, y: 30 };
-    for (const f of [-1, -0.5, 0.5, 1]) {
-      const [tx] = P(f, 0), [, ty] = P(0, f);
-      g += `<line x1="${tx}" x2="${tx}" y1="${C - 4}" y2="${C + 4}" stroke="var(--ink-2)"/>`;
-      g += `<line y1="${ty}" y2="${ty}" x1="${C - 4}" x2="${C + 4}" stroke="var(--ink-2)"/>`;
-      if (Math.abs(f) === 1) {
-        g += `<text x="${tx}" y="${C + 16}" text-anchor="middle" font-size="10" font-family="var(--f-mono)" fill="var(--ink-3)">${signed(f * sc.x, 0)}bp</text>`;
-        g += `<text x="${C + 7}" y="${ty + 3.5}" font-size="10" font-family="var(--f-mono)" fill="var(--ink-3)">${signed(-f * sc.y, 0)}bp</text>`;
-      }
-    }
     // axes with arrowheads
     g += `<defs><marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--ink)"/></marker></defs>`;
     g += `<line x1="${C - H + 2}" y1="${C}" x2="${C + H - 2}" y2="${C}" stroke="var(--ink)" stroke-width="1.6" marker-start="url(#ah)" marker-end="url(#ah)"/>`;
     g += `<line x1="${C}" y1="${C + H - 2}" x2="${C}" y2="${C - H + 2}" stroke="var(--ink)" stroke-width="1.6" marker-start="url(#ah)" marker-end="url(#ah)"/>`;
-    // axis labels outside the plot
     const lab = (x, y, txt, rot, col) => `<text x="${x}" y="${y}" text-anchor="middle" font-family="var(--f-display)" font-weight="800" font-size="11.5" letter-spacing="1.2" style="font-stretch:112%" fill="${col}" ${rot ? `transform="rotate(${rot} ${x} ${y})"` : ""}>${txt}</text>`;
     g += lab(C, C - H - 14, "EASIER FED  +", 0, "var(--up)");
     g += lab(C, C + H + 24, "TIGHTER FED  −", 0, "var(--down)");
@@ -188,53 +179,29 @@
     const [qx0, qy0] = P(-0.2, 0.2), [qx1, qy1] = P(0.2, -0.2);
     g += `<rect x="${qx0}" y="${qy0}" width="${qx1 - qx0}" height="${qy1 - qy0}" fill="var(--q-quality)" fill-opacity=".06" stroke="var(--q-quality)" stroke-dasharray="4 3" rx="3"/>`;
     g += `<text x="${C}" y="${qy0 - 5}" text-anchor="middle" font-family="var(--f-display)" font-weight="800" font-size="10" letter-spacing="1" fill="var(--q-quality)">QUALITY</text>`;
-    // tapes and curve icons
+    // quadrant tapes
     const L = C - H + 10, R = C + H - 10, T = C - H + 10, B = C + H - 10;
-    g += tapeSVG("growth", "Growth", L, T) + curveIcon("growth", L, T + 32);
-    g += tapeSVG("riskon", "Risk ON", R, T, "end") + curveIcon("riskon", R - 58, T + 32);
-    g += tapeSVG("riskoff", "Risk OFF", L, B - 25) + curveIcon("riskoff", L, B - 25 - 40);
-    g += tapeSVG("value", "Value", R, B - 25, "end") + curveIcon("value", R - 58, B - 25 - 40);
-    const cap = (x, y, txt, anchor) => `<text x="${x}" y="${y}" text-anchor="${anchor}" font-size="10" font-family="var(--f-mono)" fill="var(--ink-3)">${txt}</text>`;
-    g += cap(L + 62, T + 52, "bull flattener", "start") + cap(R - 62, T + 52, "bull steepener", "end");
-    g += cap(L + 62, B - 44, "bear flattener", "start") + cap(R - 62, B - 44, "bear steepener", "end");
-
-    // trails (last 13 weeks)
+    g += tapeSVG("growth", "Growth", L, T) + tapeSVG("riskon", "Risk ON", R, T, "end");
+    g += tapeSVG("riskoff", "Risk OFF", L, B - 25) + tapeSVG("value", "Value", R, B - 25, "end");
+    // trail: previous 12 weeks
     const tr = (W.trail || []).slice(-13);
-    const cpts = tr.filter((p) => ok(p.cx)).map((p) => [P(p.cx, p.cy), p]);
-    const apts = tr.map((p) => [P(p.ax, p.ay), p]);
-    if (apts.length > 1) g += `<polyline points="${apts.map(([q]) => q.join(",")).join(" ")}" fill="none" stroke="var(--ink-2)" stroke-opacity=".45" stroke-dasharray="3 3"/>`;
-    if (cpts.length > 1) g += `<polyline points="${cpts.map(([q]) => q.join(",")).join(" ")}" fill="none" stroke="var(--ink)" stroke-opacity=".35" stroke-width="1.4"/>`;
-    apts.slice(0, -1).forEach(([[x, y], p], i) => {
-      const o = (0.2 + (0.6 * i) / apts.length).toFixed(2);
-      g += `<rect x="${x - 3}" y="${y - 3}" width="6" height="6" transform="rotate(45 ${x} ${y})" fill="var(--surface)" stroke="var(--ink-2)" stroke-opacity="${o}"><title>Assets, week of ${fmtDate(p.date)}: ${QNAME[p.asset_quad]}</title></rect>`;
+    const pts = tr.map((p) => [P(p.ax, p.ay), p]);
+    if (pts.length > 1) g += `<polyline points="${pts.map(([q]) => q.join(",")).join(" ")}" fill="none" stroke="var(--ink-2)" stroke-opacity=".5" stroke-dasharray="3 3"/>`;
+    pts.slice(0, -1).forEach(([[x, y], p], i) => {
+      const o = (0.2 + (0.6 * i) / pts.length).toFixed(2);
+      g += `<rect x="${x - 3.5}" y="${y - 3.5}" width="7" height="7" transform="rotate(45 ${x} ${y})" fill="var(--q-${p.asset_quad})" fill-opacity="${o}" stroke="var(--surface)" stroke-width="1"><title>Week of ${fmtDate(p.date)}: ${QNAME[p.asset_quad]}</title></rect>`;
     });
-    cpts.slice(0, -1).forEach(([[x, y], p], i) => {
-      const o = (0.18 + (0.6 * i) / cpts.length).toFixed(2);
-      g += `<circle cx="${x}" cy="${y}" r="3.2" fill="var(--ink)" fill-opacity="${o}"><title>Curve, week of ${fmtDate(p.date)}</title></circle>`;
-    });
-    // current positions
-    const [axx, ayy] = P(W.assets.x, W.assets.y);
-    g += `<rect x="${axx - 7}" y="${ayy - 7}" width="14" height="14" transform="rotate(45 ${axx} ${ayy})" fill="var(--surface)" stroke="var(--ink)" stroke-width="2.4"><title>Cross-asset checklist: ${QNAME[lead]}</title></rect>`;
-    let cxx = null, cyy = null;
-    if (W.curve) {
-      [cxx, cyy] = P(W.curve.x, W.curve.y);
-      g += `<circle cx="${cxx}" cy="${cyy}" r="8" fill="var(--ink)" stroke="var(--surface)" stroke-width="2.5"><title>Yield curve: ${esc(W.curve.name)}</title></circle>`;
-    }
-    const near = cxx !== null && Math.hypot(cxx - axx, cyy - ayy) < 34;
-    const tag = (x, y, txt, dy) => {
-      const right = x < C + H - 70;
-      return `<text x="${x + (right ? 13 : -13)}" y="${y + dy}" text-anchor="${right ? "start" : "end"}" font-family="var(--f-display)" font-weight="700" font-size="12.5" fill="var(--ink)" paint-order="stroke" stroke="var(--surface)" stroke-width="4" stroke-linejoin="round">${txt}</text>`;
-    };
-    if (cxx !== null) g += tag(cxx, cyy, "Curve", near ? -10 : 4);
-    g += tag(axx, ayy, "Assets", near ? 16 : 4);
-    const aria = `Regime map. Assets point to ${QNAME[lead]}${curveQ ? `; the yield curve points to ${QNAME[curveQ]}` : ""}.`;
-    return `<svg viewBox="0 0 520 520" role="img" aria-label="${esc(aria)}">${g}</svg>`;
+    const [ax, ay] = P(W.assets.x, W.assets.y);
+    g += `<rect class="cur-dot" x="${ax - 8}" y="${ay - 8}" width="16" height="16" transform="rotate(45 ${ax} ${ay})" fill="var(--q-${lead})" stroke="var(--ink)" stroke-width="2.4"><title>Now: ${QNAME[lead]}</title></rect>`;
+    const right = ax < C + H - 70;
+    g += `<text x="${ax + (right ? 15 : -15)}" y="${ay + 4.5}" text-anchor="${right ? "start" : "end"}" font-family="var(--f-display)" font-weight="800" font-size="13" fill="var(--ink)" paint-order="stroke" stroke="var(--surface)" stroke-width="4" stroke-linejoin="round">Now</text>`;
+    return `<svg viewBox="0 0 520 520" role="img" aria-label="${esc(`Regime map. The ${S.win === "1M" ? "1-month" : "3-month"} checklist points to ${QNAME[lead]}.`)}">${g}</svg>`;
   }
 
   // --------------------------------------------------------- overview ---
   function segWin() {
-    return `<div class="seg" role="group" aria-label="Look-back window">${["1M", "3M"].map((w) =>
-      `<button type="button" data-win="${w}" aria-pressed="${S.win === w}">${w === "1M" ? "1 month" : "3 months"}</button>`).join("")}</div>`;
+    return `<div class="seg" role="group" aria-label="Look-back window">${["3M", "1M"].map((w) =>
+      `<button type="button" data-win="${w}" aria-pressed="${S.win === w}" title="${w === "1M" ? "Changes every ~2 weeks; no forward value in the backtest" : "The tested look-back"}">${w === "1M" ? "1 month · noisy" : "3 months"}</button>`).join("")}</div>`;
   }
 
   function scoreRows(W) {
@@ -271,16 +238,16 @@
 
   function quadCards(W) {
     return [...W.quadrants, W.quality].map((q) => `<div class="qcard">
-      <div class="qcard-h"><span class="tape t-${q.key}">${q.name}</span><span class="sub">${esc(q.curve)}</span>
-        <span class="cnt">${q.match}/${q.n} ✓</span></div>
+      <div class="qcard-h"><span class="tape t-${q.key}">${q.name}</span>
+        <span class="cnt">${q.match}/${q.n} ✓ ${q.against} ✗</span></div>
       <p class="qcard-blurb">${esc(q.blurb)}</p>
       <div>${q.signals.map((s) => sigRow(s, q.key)).join("")}</div></div>`).join("");
   }
 
-  function historyStrip(W) {
+  function historyStrip(W, alert) {
     const tr = W.trail || [];
     if (!tr.length) return "";
-    const cols = `64px repeat(${tr.length}, minmax(9px, 1fr))`;
+    const cols = `92px repeat(${tr.length}, minmax(9px, 1fr))`;
     const mo = tr.map((p) => Number(p.date.slice(5, 7)));
     const firstChange = mo.findIndex((m) => m !== mo[0]);
     const months = mo.map((m, i) => {
@@ -288,10 +255,90 @@
       return `<span class="mon">${show ? MON[m - 1] : ""}</span>`;
     }).join("");
     const a = tr.map((p) => `<span class="cell bg-${p.asset_quad}" title="Week of ${fmtDate(p.date)}: ${QNAME[p.asset_quad]}"></span>`).join("");
-    const c = tr.map((p) => `<span class="cell bg-${p.curve_quad || "none"}" title="Week of ${fmtDate(p.date)}: ${p.curve_quad ? QNAME[p.curve_quad] : "no clear curve move"}"></span>`).join("");
+    const al = (alert.hist || []).map((p) => `<span class="cell ${p.on ? "bg-alert" : "bg-none"}" title="Week of ${fmtDate(p.date)}: ${p.on ? "Risk OFF alert on" : "clear"}"></span>`).join("");
     return `<div class="hist"><div class="hist-grid" style="grid-template-columns:${cols}">
-      <span class="lab">Assets</span>${a}<span class="lab">Curve</span>${c}<span></span>${months}</div></div>
-      <div class="hist-legend">${QKEYS.map((k) => `<span><i class="sw bg-${k}"></i>${QNAME[k]}</span>`).join("")}<span><i class="sw bg-none"></i>No clear call</span></div>`;
+      <span class="lab">Best fit (${S.win})</span>${a}<span class="lab">Risk OFF alert</span>${al}<span></span>${months}</div></div>
+      <div class="hist-legend">${QKEYS.map((k) => `<span><i class="sw bg-${k}"></i>${QNAME[k]}</span>`).join("")}<span><i class="sw bg-alert"></i>Alert on (3-month)</span></div>`;
+  }
+
+  function alertChart(hist) {
+    const W = 600, H = 96, pl = 30, pr = 8, pt = 8, pb = 8;
+    const n = hist.length;
+    if (n < 2) return "";
+    const X = (i) => pl + (i / (n - 1)) * (W - pl - pr);
+    const Y = (v) => pt + (1 - (v + 1) / 2) * (H - pt - pb);
+    const bw = (W - pl - pr) / (n - 1);
+    let g = "";
+    hist.forEach((p, i) => { if (p.on) g += `<rect x="${X(i) - bw / 2}" y="${pt}" width="${bw}" height="${H - pt - pb}" fill="var(--q-riskoff)" fill-opacity=".14"/>`; });
+    for (const v of [-1, 0, 1]) {
+      g += `<line x1="${pl}" x2="${W - pr}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)" ${v === 0 ? "" : 'stroke-dasharray="2 3"'}/>`;
+      g += `<text x="${pl - 5}" y="${Y(v) + 3.5}" text-anchor="end" font-size="10" font-family="var(--f-mono)" fill="var(--ink-3)">${v > 0 ? "+1" : v < 0 ? "−1" : "0"}</text>`;
+    }
+    const line = (k) => hist.map((p, i) => `${i ? "L" : "M"}${X(i).toFixed(1)},${Y(p[k]).toFixed(1)}`).join("");
+    g += `<path d="${line("lead_net")}" fill="none" stroke="var(--ink-3)" stroke-width="1.5" stroke-dasharray="4 3"/>`;
+    g += `<path d="${line("net")}" fill="none" stroke="var(--q-riskoff)" stroke-width="2.2"/>`;
+    g += `<circle cx="${X(n - 1)}" cy="${Y(hist[n - 1].net)}" r="3.5" fill="var(--q-riskoff)"/>`;
+    return `<svg class="alert-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Risk OFF score over the past year against the leading quadrant's score">${g}</svg>`;
+  }
+
+  function alertPanel(A) {
+    const t = A.track;
+    const status = A.on
+      ? `<span class="state on">On</span><span class="when">since ${fmtDate(A.since)} · ${A.weeks} week${A.weeks === 1 ? "" : "s"}</span>`
+      : `<span class="state off">Clear</span><span class="when">${A.last_on ? `last alert ended week of ${fmtDate(A.last_on)}` : "no alert in the past year"}</span>`;
+    const move = ok(A.net_4w) ? ` (4 weeks ago ${signed(A.net_4w, 2)})` : "";
+    const gauge = A.on
+      ? `Risk OFF leads the 3-month checklist with a score of <b>${signed(A.net, 2)}</b>${move}.`
+      : `Risk OFF scores <b>${signed(A.net, 2)}</b>${move} and ranks ${["", "1st", "2nd", "3rd", "4th"][A.rank]} of 4. ${QNAME[A.lead]} leads at ${signed(A.lead_net, 2)}, so the gap to an alert is <b>${num(A.gap, 2)}</b>.`;
+    return `<div class="panel alert ${A.on ? "is-on" : ""}">
+      <div class="alert-head">
+        <span class="tape lg t-riskoff">Risk OFF alert</span>${status}
+      </div>
+      <div class="alert-grid">
+        <div class="alert-gauge">
+          <p>${gauge}</p>
+          ${alertChart(A.hist || [])}
+          <div class="alert-key"><span><i class="ln riskoff"></i>Risk OFF score</span><span><i class="ln lead"></i>Leading quadrant's score</span><span><i class="sw bg-alert-soft"></i>Alert on</span></div>
+        </div>
+        <div class="alert-track">
+          <div class="stats">
+            <div><b class="down">${signed(t.spx_next3m, 1)}%</b><span>S&P a year, 3 months after an alert (average ${signed(t.spx_avg3m, 1)}%)</span></div>
+            <div><b>${t.episodes}</b><span>alerts, ${t.share_of_weeks}% of weeks</span></div>
+            <div><b class="up">${num(t.cash_cagr, 1)}%</b><span>a year in cash during alerts (buy &amp; hold ${num(t.bh_cagr, 1)}%)</span></div>
+            <div><b>${num(t.cash_sharpe, 2)}</b><span>Sharpe ratio (buy &amp; hold ${num(t.bh_sharpe, 2)})</span></div>
+          </div>
+          <p class="fine">Fires when Risk OFF leads the 3-month checklist, the one call with a tested edge. Backtest ${esc(t.period)}, after trading costs, before taxes. It missed ${esc(t.missed)}.</p>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function ratesPanel(reg) {
+    const c = reg.curve_context;
+    if (!c) return "";
+    const iconKey = c.clear ? c.quad : c.parallel ? ((c.d2 + c.d10) > 0 ? "par_up" : "par_down") : "flat";
+    const trendTxt = c.trend ? `the S&P is ${num(Math.abs(c.trend_pct), 1)}% ${c.trend === "up" ? "above" : "below"} its 200-day average` : "";
+    const after = ok(c.next3m) ? `Since 1990, weeks like this were followed by <b>${signed(c.next3m, 1)}%</b> a year for the S&P over the next 3 months (${c.weeks} weeks), against ${signed(reg.curve_avg, 1)}% on average.` : "";
+    const rows = reg.curve_table.map((r) => {
+      const cur = c.clear && r.quad === c.quad;
+      const cell = (k) => {
+        const [v, n] = r[k], hit = cur && c.trend === k;
+        return `<td class="${hit ? "hit" : ""}"><span class="${dir(v - reg.curve_avg)}">${signed(v, 1)}%</span><span class="n">${n} wks</span></td>`;
+      };
+      return `<tr class="${cur ? "cur" : ""}"><td><div class="shape">${iconSVG(r.quad)}<span>${esc(r.name)}${r.quad === "riskon" ? `<em>good cuts vs bad cuts</em>` : ""}<span class="tape t-${r.quad} narrow-only">${esc(r.chart_label)}</span></span></div></td>
+        <td><span class="tape t-${r.quad}">${esc(r.chart_label)}</span></td>
+        <td class="${dir(r.during)}">${signed(r.during, 1)}%</td>${cell("up")}${cell("down")}</tr>`;
+    }).join("");
+    return `<div class="panel rates">
+      <div class="panel-h"><h2>Yield curve</h2><span class="sub">Context, not a signal: on its own it had no timing value over 36 years</span></div>
+      <div class="rates-now">${iconSVG(iconKey, "var(--ink)")}
+        <div><p><b>${esc(c.shape)}</b> over the past 3 months: 2-year ${signed(c.d2, 0, "bp")}, 10-year ${signed(c.d10, 0, "bp")}${trendTxt ? `; ${trendTxt}` : ""}. ${esc(c.note)}</p>
+        <p>${after}</p></div></div>
+      <div class="tbl-wrap"><table class="rates-tbl">
+        <thead><tr><th>Curve shape, 3 months</th><th>Your chart calls it</th><th>S&amp;P while it forms</th><th>Next 3M, S&amp;P above 200-day</th><th>Next 3M, below 200-day</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>
+      <p class="fine">S&amp;P 500 total return, annualized, weekly samples 1990–2026. The 200-day average splits easing into good cuts (stocks holding up) and bad cuts (cutting into weakness): the same bull steepener was followed by ${signed(reg.curve_table[0].up[0], 1)}% versus ${signed(reg.curve_table[0].down[0], 1)}% a year.</p>
+    </div>`;
   }
 
   function tiles() {
@@ -322,32 +369,33 @@
 
   function renderOverview() {
     const { regime } = S.data;
-    const W = regime.windows[S.win];
-    const lead = W.assets.leader, conf = W.story.confidence;
+    const W = regime.windows[S.win] || regime.windows["3M"];
+    const lead = W.assets.leader, st = W.story.strength || "weak";
     $("#overview").innerHTML = `
+      ${regime.alert ? alertPanel(regime.alert) : ""}
       <div class="ov-top">
         <div class="panel map-wrap">
-          <div class="panel-h"><h2>Regime map</h2><span class="sub">${S.win === "1M" ? "Past month" : "Past 3 months"} · data to ${fmtDate(regime.asof, true)}</span></div>
+          <div class="panel-h"><h2>Regime map</h2><span class="sub">${S.win === "1M" ? "Past month (noisy)" : "Past 3 months"} · data to ${fmtDate(regime.asof, true)}</span></div>
           ${mapSVG(regime, W)}
           <div class="map-legend">
-            <span><svg width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="5.5" fill="var(--ink)"/></svg>Yield curve (2Y and 10Y moves)</span>
-            <span><svg width="14" height="14" aria-hidden="true"><rect x="3" y="3" width="8" height="8" transform="rotate(45 7 7)" fill="var(--surface)" stroke="var(--ink)" stroke-width="2"/></svg>Cross-asset checklist</span>
+            <span><svg width="16" height="16" aria-hidden="true"><rect x="4" y="4" width="8" height="8" transform="rotate(45 8 8)" fill="var(--q-${lead})" stroke="var(--ink)" stroke-width="2"/></svg>Now</span>
             <span class="muted">Faded marks: previous 12 weeks</span>
           </div>
-          <p class="map-note">Up = yields falling on average (the market pricing an easier Fed). Right = the 10Y−2Y slope steepening. The edge of the map is a ${S.win === "1M" ? "1-month" : "3-month"} move as large as the biggest 5% of the past five years.</p>
+          <p class="map-note">Placed by the four checklist scores below: up when Growth and Risk ON beat Risk OFF and Value, right when Risk ON and Value beat Growth and Risk OFF.</p>
         </div>
         <div class="panel read">
           <div class="panel-h" style="justify-content:space-between"><h2>The read</h2>${segWin()}</div>
-          <div class="verdict"><span class="tape lg t-${lead}">${QNAME[lead]}</span><span class="pill ${conf}">${conf} confidence</span></div>
+          <div class="verdict"><span class="tape lg t-${lead}">${QNAME[lead]}</span><span class="pill ${st}">${st} lead</span></div>
           <div class="scores">${scoreRows(W)}</div>
           ${W.story.paras.map((p) => `<p>${md(p)}</p>`).join("")}
-          <ul class="backdrop">${W.story.backdrop.map((b) => `<li>${md(b)}</li>`).join("")}</ul>
+          ${W.story.backdrop.length ? `<ul class="backdrop">${W.story.backdrop.map((b) => `<li>${md(b)}</li>`).join("")}</ul>` : ""}
         </div>
       </div>
+      ${ratesPanel(regime)}
       <div class="panel"><div class="panel-h"><h2>Key numbers</h2><span class="sub">Rates lag one business day</span></div>${tiles()}</div>
       <div class="panel"><div class="panel-h"><h2>Signal checklist</h2><span class="sub">Every ▲ ▼ ▶ from your chart, checked against the market over the ${S.win === "1M" ? "past month" : "past 3 months"}. Tap a row for what it measures.</span></div>
         <div class="checks">${quadCards(W)}</div></div>
-      <div class="panel"><div class="panel-h"><h2>Regime history</h2><span class="sub">Best fit each week over the past year, ${S.win === "1M" ? "1-month" : "3-month"} look-back</span></div>${historyStrip(W)}</div>`;
+      <div class="panel"><div class="panel-h"><h2>Regime history</h2><span class="sub">Each week over the past year</span></div>${historyStrip(W, regime.alert || {})}</div>`;
   }
 
   // ---------------------------------------------------------- markets ---
@@ -487,9 +535,14 @@
         const [meta, market, macro, regime] = await Promise.all(["meta", "market", "macro", "regime"].map(getJSON));
         d = { meta, market, macro, regime };
       }
-      S.data = d; S.built = d.meta.built;
+      if (!S.data && d.regime && d.regime.default_window) S.win = d.regime.default_window;
+      S.data = d;
       $("#empty").hidden = true;
+      const first = !S.built;
+      S.built = d.meta.built;
       renderAll();
+      // the tab name in the URL is also a section id; don't let the browser jump past the header
+      if (first) window.scrollTo(0, 0);
     } catch (e) {
       $("#empty").hidden = false;
       ["overview", "markets", "macro"].forEach((id) => ($("#" + id).hidden = true));

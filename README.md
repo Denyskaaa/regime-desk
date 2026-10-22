@@ -53,7 +53,17 @@ Interpretation choices worth knowing:
 - EPS uses BEA corporate profits (quarterly, lagging). LEI is a free-data proxy built from claims, hours, orders, permits, the S&P 500, the curve and sentiment. Forward P/E has no free source and is left out.
 - ISM, Chicago PMI, S&P Global PMIs, NAHB and MBA data are proprietary. Philly Fed and Empire State surveys stand in for ISM.
 
-**This describes what markets are pricing now. It is not a forecast.** Regimes are confirmed late and can flip quickly. The sensible next step is a backtest of the scores over 15–20 years.
+**This describes what markets are pricing now. It is not a forecast.**
+
+## What the backtest found (research/, Oct 2026)
+
+Weekly point-in-time calls, next-day execution, 5bp per trade. Curve 1990–2026; checklist 2008–2026.
+
+- **The 3-month Risk OFF call is the one tested edge.** After it fired, the S&P returned −11.6% a year over the next 3 months (average +11.4%). Holding cash during alerts: 16.5% a year vs 12.5% buy-and-hold, Sharpe 0.94 vs 0.62. It missed the COVID crash.
+- **The 1-month view is noise**: calls change every ~2 weeks and showed no forward value.
+- **The yield curve alone had no timing value**, and the chart mislabels the bull steepener: stocks fell while it formed. Splitting by the S&P's 200-day average separates good cuts (+12.6% a year next 3 months) from bad cuts (+1.2%).
+
+The site reflects this: 3 months is the default, the Risk OFF alert is the headline, and the curve is shown as context with its historical record. The figures live in `BACKTEST` and `CURVE_SHAPES` in `pipeline/config.py`; rerun `python -m research.backtest` and `python -m research.strategies` to refresh them.
 
 ## Customizing
 
