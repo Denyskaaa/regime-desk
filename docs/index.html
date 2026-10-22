@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Regime Desk</title>
+<meta name="description" content="Where the market sits on the Growth / Risk ON / Risk OFF / Value regime map, with live markets and US macro data.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="style.css">
+<script>
+  try { var t = localStorage.getItem("rd-theme"); if (t) document.documentElement.setAttribute("data-theme", t); } catch (e) {}
+</script>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <div class="top-row">
+      <h1 class="mark">
+        <span class="glyph" aria-hidden="true"><i class="bg-growth"></i><i class="bg-riskon"></i><i class="bg-riskoff"></i><i class="bg-value"></i></span>
+        REGIME DESK
+      </h1>
+      <div class="fresh" id="fresh"><span class="dot-live" id="live-dot"></span><span id="fresh-text">Loading…</span></div>
+      <button class="icon-btn" id="theme-btn" type="button" aria-label="Switch light or dark theme" title="Switch theme">
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 1.8a6.2 6.2 0 0 1 0 12.4z" fill="currentColor"/></svg>
+      </button>
+    </div>
+    <nav class="tabs" role="tablist" aria-label="Sections">
+      <button class="tab" role="tab" id="tab-overview" aria-controls="overview" data-tab="overview">Overview</button>
+      <button class="tab" role="tab" id="tab-markets" aria-controls="markets" data-tab="markets">Markets</button>
+      <button class="tab" role="tab" id="tab-macro" aria-controls="macro" data-tab="macro">Macro</button>
+    </nav>
+  </div>
+</header>
+<div class="banner" id="sample-banner" hidden>
+  <div class="wrap">Sample data. These numbers are made up to preview the layout; real data appears after the first update runs on GitHub.</div>
+</div>
+
+<main class="wrap">
+  <section id="overview" class="view" role="tabpanel" aria-labelledby="tab-overview"></section>
+  <section id="markets" class="view" role="tabpanel" aria-labelledby="tab-markets" hidden></section>
+  <section id="macro" class="view" role="tabpanel" aria-labelledby="tab-macro" hidden></section>
+  <div class="empty" id="empty" hidden>No data yet. The first update run on GitHub creates it.</div>
+</main>
+
+<footer class="wrap">
+  <p>Data: Yahoo Finance (markets, refreshed every 30 minutes in US trading hours) and FRED, St. Louis Fed (macro and Treasury yields, which lag one business day).</p>
+  <p>The regime map describes what markets are pricing now. It is not a forecast and not investment advice.</p>
+</footer>
+<script src="app.js"></script>
+</body>
+</html>
