@@ -307,7 +307,7 @@
             <div><b class="up">${num(t.cash_cagr, 1)}%</b><span>a year in cash during alerts (buy &amp; hold ${num(t.bh_cagr, 1)}%)</span></div>
             <div><b>${num(t.cash_sharpe, 2)}</b><span>Sharpe ratio (buy &amp; hold ${num(t.bh_sharpe, 2)})</span></div>
           </div>
-          <p class="fine">Fires when Risk OFF leads the 3-month checklist, the one call with a tested edge. Backtest ${esc(t.period)}, after trading costs, before taxes. It missed ${esc(t.missed)}.</p>
+          <p class="fine">Fires when Risk OFF leads the 3-month checklist, the one call with a tested edge. To match the backtest it uses market signals only; EPS and LEI are left out because they are revised and published late. Backtest ${esc(t.period)}, after trading costs, before taxes. It missed ${esc(t.missed)}.</p>
         </div>
       </div>
     </div>`;

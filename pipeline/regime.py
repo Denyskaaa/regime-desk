@@ -417,11 +417,22 @@ def build(prices, fred, derived, macro_json):
                               nets={q["key"]: q["net"] for q in r["quadrants"]}))
         results[win], trails[win] = res, trail
 
+    # The alert must match what was backtested: market signals only. EPS and LEI are
+    # left out because they are revised and published with a lag (no point-in-time history).
+    eng_t = Engine(prices, {k: v for k, v in fred.items() if k != "CP"}, {})
+    off3 = pd.DateOffset(**config.WINDOWS["3M"])
+    res_t = eng_t.evaluate(end, off3)
+    trail_t = []
+    for d in dates:
+        r = eng_t.evaluate(d, off3)
+        trail_t.append(dict(date=d.strftime("%Y-%m-%d"), asset_quad=r["assets"]["leader"],
+                            nets={q["key"]: q["net"] for q in r["quadrants"]}))
+
     tr = stock_trend(prices, end)
     ctx = curve_context(results["3M"]["curve"], tr) if "3M" in results else None
     leaders = {w: r["assets"]["leader"] for w, r in results.items()}
     out = dict(asof=end.strftime("%Y-%m-%d"), fed=fed, windows={}, default_window=config.DEFAULT_WINDOW,
-               trend=tr, curve_context=ctx, alert=alert(trails["3M"], results["3M"]),
+               trend=tr, curve_context=ctx, alert=alert(trail_t, res_t),
                curve_table=[dict(quad=k, chart_label=QN[k], **{x: v for x, v in config.CURVE_SHAPES[k].items()})
                             for k in ("riskon", "growth", "riskoff", "value")],
                curve_avg=config.CURVE_AVG)
