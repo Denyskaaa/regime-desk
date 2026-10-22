@@ -7,6 +7,7 @@
 import argparse
 import json
 import math
+import subprocess
 import os
 import sys
 from datetime import datetime, timedelta, timezone
@@ -48,6 +49,13 @@ def main(argv=None):
     ap.add_argument("--macro-hours", type=float, default=3.0,
                     help="refresh FRED when the cached copy is older than this")
     a = ap.parse_args(argv)
+
+    # Runs can be triggered twice for the same slot (GitHub's schedule and the external timer).
+    # They queue one after another, but each checks out the commit it was triggered on, so catch
+    # up with any data the previous run saved first; otherwise saving our data would conflict.
+    if os.environ.get("GITHUB_ACTIONS") == "true" and not a.sample:
+        subprocess.run(["git", "pull", "-q", "--ff-only", "origin", os.environ.get("GITHUB_REF_NAME", "main")],
+                       cwd=fetch.ROOT, check=False)
 
     meta_path = os.path.join(fetch.DATA, "meta.json")
     meta = json.load(open(meta_path)) if os.path.exists(meta_path) else {}
