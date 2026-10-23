@@ -1,0 +1,244 @@
+{
+ "generated": "2026-10-22",
+ "track": {
+  "period": "Jul 2008 \u2013 Oct 2026",
+  "episodes": 23,
+  "share_of_weeks": 13,
+  "median_weeks": 3,
+  "spx_next3m": -10.8,
+  "spx_avg3m": 12.8,
+  "commodities_next3m": -26.7,
+  "cash_cagr": 16.36,
+  "cash_sharpe": 0.93,
+  "cash_maxdd": -34,
+  "bh_cagr": 12.47,
+  "bh_sharpe": 0.62,
+  "bh_maxdd": -47,
+  "false_alarms": 10,
+  "false_cost": 2.4,
+  "real_alerts": 13,
+  "real_saved": -6.0,
+  "missed": "the COVID crash of early 2020, which was too fast for a 3-month signal",
+  "recent": [
+   {
+    "start": "2023-10-13",
+    "end": "2023-10-27",
+    "weeks": 3,
+    "spx": -0.1268369906255007
+   },
+   {
+    "start": "2024-12-20",
+    "end": "2025-01-03",
+    "weeks": 3,
+    "spx": -2.2400524738202865
+   },
+   {
+    "start": "2026-07-10",
+    "end": "2026-08-14",
+    "weeks": 6,
+    "spx": 1.9488320091346045
+   }
+  ]
+ },
+ "overlay": [
+  {
+   "t": "SPY",
+   "name": "S&P 500",
+   "sharpe_before": 0.62,
+   "sharpe_after": 0.93,
+   "dd_before": -47,
+   "dd_after": -34,
+   "helped_both_halves": true
+  },
+  {
+   "t": "QQQ",
+   "name": "Nasdaq-100",
+   "sharpe_before": 0.77,
+   "sharpe_after": 1.13,
+   "dd_before": -47,
+   "dd_after": -29,
+   "helped_both_halves": true
+  },
+  {
+   "t": "IWM",
+   "name": "Small caps",
+   "sharpe_before": 0.43,
+   "sharpe_after": 0.61,
+   "dd_before": -54,
+   "dd_after": -41,
+   "helped_both_halves": true
+  },
+  {
+   "t": "EFA",
+   "name": "Developed ex-US",
+   "sharpe_before": 0.28,
+   "sharpe_after": 0.5,
+   "dd_before": -53,
+   "dd_after": -34,
+   "helped_both_halves": true
+  },
+  {
+   "t": "EEM",
+   "name": "Emerging markets",
+   "sharpe_before": 0.23,
+   "sharpe_after": 0.46,
+   "dd_before": -59,
+   "dd_after": -38,
+   "helped_both_halves": true
+  },
+  {
+   "t": "XLK",
+   "name": "Tech",
+   "sharpe_before": 0.76,
+   "sharpe_after": 1.07,
+   "dd_before": -44,
+   "dd_after": -31,
+   "helped_both_halves": true
+  },
+  {
+   "t": "XLF",
+   "name": "Financials",
+   "sharpe_before": 0.39,
+   "sharpe_after": 0.56,
+   "dd_before": -72,
+   "dd_after": -53,
+   "helped_both_halves": true
+  },
+  {
+   "t": "XLP",
+   "name": "Staples",
+   "sharpe_before": 0.6,
+   "sharpe_after": 0.79,
+   "dd_before": -32,
+   "dd_after": -24,
+   "helped_both_halves": true
+  },
+  {
+   "t": "HYG",
+   "name": "High-yield bonds",
+   "sharpe_before": 0.39,
+   "sharpe_after": 0.61,
+   "dd_before": -30,
+   "dd_after": -22,
+   "helped_both_halves": true
+  },
+  {
+   "t": "XLE",
+   "name": "Energy",
+   "sharpe_before": 0.29,
+   "sharpe_after": 0.38,
+   "dd_before": -71,
+   "dd_after": -63,
+   "helped_both_halves": false
+  },
+  {
+   "t": "GLD",
+   "name": "Gold",
+   "sharpe_before": 0.44,
+   "sharpe_after": 0.43,
+   "dd_before": -46,
+   "dd_after": -36,
+   "helped_both_halves": false
+  },
+  {
+   "t": "TLT",
+   "name": "Long Treasuries",
+   "sharpe_before": 0.13,
+   "sharpe_after": 0.01,
+   "dd_before": -48,
+   "dd_after": -41,
+   "helped_both_halves": false
+  }
+ ],
+ "parking": [
+  {
+   "t": "CASH",
+   "name": "T-bills (cash)",
+   "2008-16": 0.4,
+   "2017-26": 2.6
+  },
+  {
+   "t": "SHY",
+   "name": "Short Treasuries (SHY)",
+   "2008-16": 4.1,
+   "2017-26": 1.2
+  },
+  {
+   "t": "UUP",
+   "name": "US dollar (UUP)",
+   "2008-16": 1.0,
+   "2017-26": 5.8
+  },
+  {
+   "t": "TLT",
+   "name": "Long Treasuries (TLT)",
+   "2008-16": 37.7,
+   "2017-26": -4.6
+  },
+  {
+   "t": "GLD",
+   "name": "Gold (GLD)",
+   "2008-16": -10.9,
+   "2017-26": 22.6
+  },
+  {
+   "t": "XLP",
+   "name": "Staples (XLP)",
+   "2008-16": -13.9,
+   "2017-26": -6.0
+  },
+  {
+   "t": "XLU",
+   "name": "Utilities (XLU)",
+   "2008-16": -17.6,
+   "2017-26": -6.3
+  },
+  {
+   "t": "XLV",
+   "name": "Health care (XLV)",
+   "2008-16": -22.8,
+   "2017-26": 3.7
+  },
+  {
+   "t": "SPY",
+   "name": "S&P 500 (what you avoided)",
+   "2008-16": -31.3,
+   "2017-26": -13.3
+  }
+ ],
+ "follow": {
+  "growth": {
+   "weeks": 329,
+   "playbook": 0.7,
+   "playbook_t": 0.4,
+   "spx": 7.9,
+   "spx_t": 1.8,
+   "tested_edge": false
+  },
+  "riskon": {
+   "weeks": 310,
+   "playbook": 4.3,
+   "playbook_t": 1.2,
+   "spx": 3.3,
+   "spx_t": 0.8,
+   "tested_edge": false
+  },
+  "riskoff": {
+   "weeks": 126,
+   "playbook": 12.3,
+   "playbook_t": 2.1,
+   "spx": -27.0,
+   "spx_t": -2.3,
+   "tested_edge": true
+  },
+  "value": {
+   "weeks": 182,
+   "playbook": 0.9,
+   "playbook_t": 0.3,
+   "spx": 3.1,
+   "spx_t": 0.8,
+   "tested_edge": false
+  }
+ },
+ "ties_3m": 9
+}

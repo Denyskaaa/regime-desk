@@ -37,7 +37,7 @@ def build(px, fred, reg, cur, start, end=None):
         w = pd.DataFrame({"^SP500TR": (cq != "riskoff").astype(float), "CASH": (cq == "riskoff").astype(float)})
         out[f"Curve {win}: cash in Risk OFF"] = run_weights(to_daily_weights(w, r.index), r)
         # Rotation: hold the chart's favoured basket for the leading quadrant
-        rows = [basket_w(ROTATION[q], avail, d) for d, q in a.items()]
+        rows = [basket_w(ROTATION.get(q, ["SPY"]), avail, d) for d, q in a.items()]
         w = wk_frame(rows, a.index)
         out[f"Assets {win}: rotate into playbook"] = run_weights(to_daily_weights(w, r.index), r)
     res = pd.DataFrame({k: stats(v[v.index >= start], r["CASH"]) for k, v in out.items()}).T

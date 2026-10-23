@@ -396,17 +396,20 @@ Z_BAND = 0.3
 Z_STRONG = 1.0
 
 # ---------------------------------------------------------------------------
-# Backtest results (research/backtest.py, run Oct 2026), shown on the site so
-# each call carries its track record. Re-run the research job to refresh them.
+# Backtest results shown on the site so each call carries its track record.
+# research/site_constants.py writes research/out/site_constants.json, which
+# replaces these at the bottom of this file; the values here are only a
+# fallback copy of the Oct 2026 run.
 # ---------------------------------------------------------------------------
 DEFAULT_WINDOW = "3M"   # the only look-back with a tested edge; 1M is shown as noisy
 
-BACKTEST = dict(  # the Risk OFF alert: Risk OFF leads the 3-month checklist
+BACKTEST = dict(  # the Risk OFF alert: Risk OFF leads the 3-month checklist at a Friday close
     period="Jul 2008 – Oct 2026",
-    episodes=24, share_of_weeks=13,
-    spx_next3m=-11.6, spx_avg3m=11.4, commodities_next3m=-31.4,
-    cash_cagr=16.5, cash_sharpe=0.94, cash_maxdd=-34,
-    bh_cagr=12.5, bh_sharpe=0.62, bh_maxdd=-47,
+    episodes=23, share_of_weeks=13, median_weeks=3,
+    spx_next3m=-10.8, spx_avg3m=12.8, commodities_next3m=-26.7,
+    cash_cagr=16.36, cash_sharpe=0.93, cash_maxdd=-34,
+    bh_cagr=12.47, bh_sharpe=0.62, bh_maxdd=-47,
+    false_alarms=10, false_cost=2.4, real_alerts=13, real_saved=-6.0,
     missed="the COVID crash of early 2020, which was too fast for a 3-month signal",
 )
 
@@ -434,3 +437,17 @@ CURVE_SHAPES = {
                   note="Long yields rising fastest: reflation. Matches the chart's Value playbook, and "
                        "often Risk ON's too."),
 }
+
+# The research job writes every displayed backtest figure to this file
+# (python -m research.site_constants). When present it overrides the defaults above.
+import json as _json
+import os as _os
+
+_SITE_CONSTANTS = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
+                                "research", "out", "site_constants.json")
+try:
+    with open(_SITE_CONSTANTS) as _f:
+        SITE = _json.load(_f)
+    BACKTEST = SITE["track"]
+except (OSError, ValueError, KeyError):
+    SITE = None

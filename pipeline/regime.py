@@ -1,10 +1,12 @@
 """The regime engine: your quadrant chart, turned into numbers.
 
-Two independent reads of where the market is on the map:
-  1. The yield curve (2Y and 10Y moves) places a dot on the map directly.
-  2. The cross-asset checklist for each quadrant counts how many of the
-     chart's ▲/▼ calls the market is actually confirming.
-When the two agree, the read is stronger.
+Every ▲/▼ on the chart becomes a measured move over a look-back window. Each
+quadrant scores (confirming - contradicting) / signals with data, and the top
+score is the market's best fit. Exact ties are reported as ties.
+
+Only market signals are scored. EPS and LEI are shown as context: they are
+revised and published late, so the backtest could not use them point-in-time.
+The yield curve is reported separately as context (it had no timing value).
 """
 import numpy as np
 import pandas as pd
@@ -107,8 +109,9 @@ def arrow(z):
 # ------------------------------------------------------------ evaluation ---
 
 class Engine:
-    def __init__(self, prices, fred, derived):
+    def __init__(self, prices, fred, derived, score_macro=False):
         self.prices, self.fred, self.derived = prices, fred, derived
+        self.score_macro = score_macro
         self.idx = {}
         for k, m in config.MEASURES.items():
             if m["type"] != "macro":
@@ -122,8 +125,9 @@ class Engine:
             if r is None:
                 return dict(base, status="na")
             v, z, d, unit = r
+            st = status_for(expect, z)
             return dict(base, value=round(v, 2), unit=unit, z=round(z, 2), actual=arrow(z),
-                        status=status_for(expect, z), date=d.strftime("%Y-%m-%d"))
+                        status=st if self.score_macro else "context", would=st, date=d.strftime("%Y-%m-%d"))
         s = self.idx.get(key)
         r = window_change(s, end, offset) if s is not None else None
         if r is None:
@@ -141,7 +145,7 @@ class Engine:
 
     def quadrant(self, q, end, offset):
         sigs = [self.signal(k, lab, exp, end, offset) for k, lab, exp in q["signals"]]
-        live = [s for s in sigs if s["status"] != "na"]
+        live = [s for s in sigs if s["status"] not in ("na", "context")]
         n = len(live)
         match = sum(s["status"] == "match" for s in live)
         against = sum(s["status"] == "against" for s in live)
@@ -173,10 +177,16 @@ class Engine:
         net = {q["key"]: q["net"] for q in quads}
         ax = (net["riskon"] + net["value"] - net["growth"] - net["riskoff"]) / 2
         ay = (net["growth"] + net["riskon"] - net["riskoff"] - net["value"]) / 2
+        # best score wins; more confirming signals breaks a score tie; anything still level is a tie
         ranked = sorted(quads, key=lambda q: (q["net"], q["match"]), reverse=True)
+        top = ranked[0]
+        tied = [q["key"] for q in ranked if abs(q["net"] - top["net"]) < 1e-9 and q["match"] == top["match"]]
+        runner = next((q for q in ranked if q["key"] not in tied), ranked[1])
         return dict(quadrants=quads, quality=qual, curve=self.curve(end, offset),
                     assets=dict(x=round(float(np.clip(ax, -1, 1)), 3), y=round(float(np.clip(ay, -1, 1)), 3),
-                                leader=ranked[0]["key"], second=ranked[1]["key"]))
+                                leader="tie" if len(tied) > 1 else top["key"], tied=tied if len(tied) > 1 else [],
+                                first=top["key"], second=runner["key"],
+                                margin=round(top["net"] - runner["net"], 3)))
 
 
 # ------------------------------------------------------------- narrative ---
@@ -204,16 +214,8 @@ def _list(items):
     return ", ".join(items[:-1]) + " and " + items[-1]
 
 
-def strength(res):
-    """How clear the lead is: descriptive, not a probability."""
-    qs = sorted(res["quadrants"], key=lambda q: (q["net"], q["match"]), reverse=True)
-    lead, second = qs[0], qs[1]
-    margin = lead["net"] - second["net"]
-    if lead["net"] >= 0.4 and margin >= 0.15:
-        return "strong"
-    if lead["net"] >= 0.2 and margin >= 0.05:
-        return "moderate"
-    return "weak"
+def _pct(x, dp=1):
+    return f"{x:+.{dp}f}%".replace("-", "\u2212")
 
 
 def streak(trail, key):
@@ -259,46 +261,104 @@ def curve_context(c, tr):
     return out
 
 
-def alert(trail, res):
-    """Risk OFF alert: Risk OFF leads the 3-month checklist (the one call with a tested edge)."""
+def week_complete(last_date, now=None):
+    """True once the Friday close of last_date's week has passed (4:15pm New York), so a
+    Thursday-before-a-holiday week also completes."""
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo("America/New_York")
+        now = (now or pd.Timestamp.now(tz="UTC")).tz_convert(tz)
+        friday = (pd.Timestamp(last_date) + pd.Timedelta(days=4 - pd.Timestamp(last_date).weekday())).normalize()
+        cutoff = pd.Timestamp(friday.year, friday.month, friday.day, 16, 15, tz=tz)
+    except Exception:  # no tz database: fall back to a fixed 4-hour offset
+        now = (now or pd.Timestamp.now(tz="UTC")).tz_convert(None) - pd.Timedelta(hours=4)
+        friday = (pd.Timestamp(last_date) + pd.Timedelta(days=4 - pd.Timestamp(last_date).weekday())).normalize()
+        cutoff = friday + pd.Timedelta(hours=16, minutes=15)
+    return bool(now >= cutoff)
+
+
+def alert(trail, res, now=None):
+    """Risk OFF alert: Risk OFF leads the 3-month checklist (the one call with a tested edge).
+    It is official only at a week's close, as in the backtest; mid-week it is provisional."""
     nets = {q["key"]: q["net"] for q in res["quadrants"]}
-    lead = res["assets"]["leader"]
-    on = lead == "riskoff"
-    weeks = streak(trail, "riskoff") if on else 0
+    first = res["assets"]["first"]
+    complete = week_complete(trail[-1]["date"], now)
+    done = trail if complete else trail[:-1]          # completed weeks only
+    off_on = bool(done) and done[-1]["asset_quad"] == "riskoff"
+    weeks = streak(done, "riskoff") if off_on else 0
     ranked = sorted(nets, key=nets.get, reverse=True)
+    hist = [dict(date=p["date"], on=p["asset_quad"] == "riskoff", tie=p["asset_quad"] == "tie",
+                 net=p["nets"]["riskoff"], lead_net=max(p["nets"].values())) for p in trail]
+    if not complete and hist:
+        hist[-1]["provisional"] = True
     return dict(
-        on=on, weeks=weeks, since=trail[-weeks]["date"] if weeks else None,
-        last_on=next((p["date"] for p in reversed(trail) if p["asset_quad"] == "riskoff"), None),
-        net=nets["riskoff"], rank=ranked.index("riskoff") + 1, lead=lead, lead_net=nets[lead],
-        gap=round(nets[lead] - nets["riskoff"], 3),
+        on=off_on, weeks=weeks, since=done[-weeks]["date"] if weeks else None,
+        official_date=done[-1]["date"] if done else None,
+        last_on=next((p["date"] for p in reversed(done) if p["asset_quad"] == "riskoff"), None),
+        provisional=None if complete else dict(on=res["assets"]["leader"] == "riskoff",
+                                               tie="riskoff" in res["assets"]["tied"], date=trail[-1]["date"]),
+        net=nets["riskoff"], rank=ranked.index("riskoff") + 1, lead=first, lead_net=nets[first],
+        tied=res["assets"]["tied"], gap=round(nets[first] - nets["riskoff"], 3),
         net_4w=trail[-5]["nets"]["riskoff"] if len(trail) >= 5 else None,
-        hist=[dict(date=p["date"], on=p["asset_quad"] == "riskoff", net=p["nets"]["riskoff"],
-                   lead_net=max(p["nets"].values())) for p in trail],
-        track=config.BACKTEST,
+        hist=hist, track=config.BACKTEST,
+        overlay=(config.SITE or {}).get("overlay", []), parking=(config.SITE or {}).get("parking", []),
     )
+
+
+def follow_line(key):
+    """What the backtest says about acting on this call (from research/site_constants.json)."""
+    f = ((config.SITE or {}).get("follow") or {}).get(key)
+    if not f:
+        return None
+    if key == "riskoff":
+        t = config.BACKTEST
+        return (f"**This is the one call with a tested edge.** In the 3 months after Risk OFF led, the S&P returned "
+                f"{_pct(t['spx_next3m'])} a year, against {_pct(t['spx_avg3m'])} on average. Staples beat "
+                f"discretionary on average, as your chart says, but staples and utilities still lost money; "
+                f"T-bills and short Treasuries were the dependable place to park.")
+    if abs(f["spx_t"]) >= 1.5:
+        more = "more" if f["spx"] > 0 else "less"
+        return (f"**No tested edge.** After a {QN[key]} call the S&P returned about {abs(f['spx']):.1f} points a "
+                f"year {more} than in other weeks over the next 3 months, but not reliably enough to act on, and "
+                f"the playbook itself did not keep paying. Treat it as a description, not a signal.")
+    return (f"**No tested edge.** After a {QN[key]} call, its playbook and the S&P did about the same over the next "
+            f"3 months as in other weeks. Treat it as a description, not a signal.")
 
 
 def narrative(win, res, other, trail, macro_rows, fed, ctx):
     wl = "1-month" if win == "1M" else "3-month"
     out = []
     qmap = {q["key"]: q for q in res["quadrants"]}
-    L = qmap[res["assets"]["leader"]]
-    S = qmap[res["assets"]["second"]]
-    st = strength(res)
+    A = res["assets"]
+    L = qmap[A["first"]]
+    S = qmap[A["second"]]
+    prov = bool(trail) and not week_complete(trail[-1]["date"])
 
     if win == "1M":
         out.append("**1-month view.** These calls change every two weeks on average and showed no forward "
                    "value in the backtest. Use the 3-month view for decisions.")
-    out.append(f"**{L['name']}** leads the {wl} checklist: {L['match']} of {L['n']} signals confirm and "
-               f"{L['against']} contradict. {S['name']} is next at {S['match']} of {S['n']}. "
-               f"That is a **{st}** lead.")
-
-    k = streak(trail, L["key"])
-    if k >= 2:
-        out.append(f"It has been the best fit for {k} straight weeks.")
-    elif other and other != L["key"]:
+    if A["leader"] == "tie":
+        parts = [f"{qmap[k]['name']} ({qmap[k]['match']} of {qmap[k]['n']} confirm, {qmap[k]['against']} "
+                 f"contradict)" for k in A["tied"]]
+        out.append(f"**Tie on the {wl} checklist:** {_list(parts)} score the same. A tie is not a call; it will "
+                   f"break as prices move. Next is {S['name']}: {S['match']} of {S['n']} confirm and "
+                   f"{S['against']} contradict.")
+    else:
+        gap = (f"ahead by {A['margin']:.2f} on score" if A["margin"] > 0
+               else "level on score and ahead on confirmations")
+        out.append(f"**{L['name']}** fits the {wl} checklist best: {L['match']} of {L['n']} signals confirm and "
+                   f"{L['against']} contradict. Next is {S['name']}: {S['match']} of {S['n']} confirm and "
+                   f"{S['against']} contradict, so {L['name']} is {gap}.")
+        k = streak(trail, L["key"])
+        if k >= 2:
+            out.append(f"It has been the best fit for {k} straight weeks{', counting this week so far' if prov else ''}.")
+        elif len(trail) >= 2:
+            prev = trail[-2]["asset_quad"]
+            was = "a tie" if prev == "tie" else QN.get(prev, prev)
+            out.append(f"It took the lead this week{' (so far)' if prov else ''}; last week the best fit was {was}.")
+    if other and other not in (A["first"], "tie") and A["leader"] != "tie":
         if win == "1M":
-            out.append(f"The 3-month view still says {QN[other]}, so this may be short-term noise.")
+            out.append(f"The 3-month view says {QN[other]}, so this may be short-term noise.")
         else:
             out.append(f"The last month on its own looks more like {QN[other]}; the 1-month view is noisy, "
                        f"so watch whether that persists.")
@@ -306,22 +366,37 @@ def narrative(win, res, other, trail, macro_rows, fed, ctx):
     conf_sigs = sorted([s for s in L["signals"] if s["status"] == "match"], key=lambda s: -abs(s["z"]))[:3]
     anti = sorted([s for s in L["signals"] if s["status"] == "against"], key=lambda s: -abs(s["z"]))[:2]
     if conf_sigs:
-        line = "Strongest confirmations: " + _list(f"{s['label']} {_val(s)}" for s in conf_sigs) + "."
+        line = f"For {L['name']}, strongest confirmations: " + _list(f"{s['label']} {_val(s)}" for s in conf_sigs) + "."
         if anti:
             line += " Pushing against it: " + _list(f"{s['label']} {_val(s)}" for s in anti) + "."
         out.append(line)
 
-    if st == "weak":
-        Q = res["quality"]
-        out.append(f"No quadrant has a clear lead, which puts the market near the center of your map. "
-                   f"There, Quality tends to hold up: {Q['match']} of {Q['n']} quality signals confirm.")
+    if win == "3M":
+        if A["leader"] == "tie":
+            if "riskoff" in A["tied"]:
+                out.append("Only an outright Risk OFF lead triggers the alert; a tie doesn't count, as in the "
+                           "backtest.")
+            else:
+                out.append("**No tested edge** for any of the tied calls. Treat them as descriptions, not signals.")
+        else:
+            fl = follow_line(L["key"])
+            if fl:
+                if L["key"] == "riskoff" and prov:
+                    fl += (" The backtest acted only on Friday closes, so this week's reading is provisional "
+                           "until Friday's close.")
+                out.append(fl)
 
     sigs = next(q for q in config.QUADRANTS if q["key"] == L["key"])["signals"]
     favors = [lab for k_, lab, e in sigs if e == "up" and config.MEASURES[k_]["type"] not in ("yield", "macro")]
     lags = [lab for k_, lab, e in sigs if e == "down" and config.MEASURES[k_]["type"] not in ("yield", "macro")]
-    play = f"Your map's playbook for {L['name']}: favors {_list(favors)}"
+    play = f"Your chart's playbook for {L['name']}: favors {_list(favors)}"
     play += f"; expects weakness in {_list(lags)}." if lags else "."
     out.append(play)
+
+    ctxs = [s for s in L["signals"] if s["status"] == "context"]
+    if ctxs:
+        out.append("Context, not scored: " + _list(f"{s['label']} {_val(s)}" for s in ctxs) +
+                   ". EPS and LEI are revised and published late, so the backtest could not use them.")
 
     if ctx:
         if not ctx["clear"] and ctx.get("parallel"):
@@ -337,11 +412,10 @@ def narrative(win, res, other, trail, macro_rows, fed, ctx):
             out.append(f"Rates backdrop, context only: over 3 months the curve made a **{ctx['shape'].lower()}** "
                        f"({_bp(ctx['d2'])} on the 2-year, {_bp(ctx['d10'])} on the 10-year) with the S&P "
                        f"{abs(ctx['trend_pct']):.1f}% {pos} its 200-day average. Since 1990, that combination was "
-                       f"followed by {ctx['next3m']:+.1f}% a year for the S&P over the next 3 months, against "
-                       f"{ctx['avg']:+.1f}% on average.".replace("+-", "−").replace("-", "−")
-                       .replace("200−day", "200-day").replace("2−year", "2-year").replace("10−year", "10-year"))
+                       f"followed by {_pct(ctx['next3m'])} a year for the S&P over the next 3 months, against "
+                       f"{_pct(ctx['avg'])} on average.")
 
-    return dict(paras=out, backdrop=backdrop(macro_rows, fed), strength=st)
+    return dict(paras=out, backdrop=backdrop(macro_rows, fed), margin=A["margin"])
 
 
 def backdrop(rows, fed):
@@ -417,22 +491,11 @@ def build(prices, fred, derived, macro_json):
                               nets={q["key"]: q["net"] for q in r["quadrants"]}))
         results[win], trails[win] = res, trail
 
-    # The alert must match what was backtested: market signals only. EPS and LEI are
-    # left out because they are revised and published with a lag (no point-in-time history).
-    eng_t = Engine(prices, {k: v for k, v in fred.items() if k != "CP"}, {})
-    off3 = pd.DateOffset(**config.WINDOWS["3M"])
-    res_t = eng_t.evaluate(end, off3)
-    trail_t = []
-    for d in dates:
-        r = eng_t.evaluate(d, off3)
-        trail_t.append(dict(date=d.strftime("%Y-%m-%d"), asset_quad=r["assets"]["leader"],
-                            nets={q["key"]: q["net"] for q in r["quadrants"]}))
-
     tr = stock_trend(prices, end)
     ctx = curve_context(results["3M"]["curve"], tr) if "3M" in results else None
     leaders = {w: r["assets"]["leader"] for w, r in results.items()}
     out = dict(asof=end.strftime("%Y-%m-%d"), fed=fed, windows={}, default_window=config.DEFAULT_WINDOW,
-               trend=tr, curve_context=ctx, alert=alert(trail_t, res_t),
+               trend=tr, curve_context=ctx, alert=alert(trails["3M"], results["3M"]),
                curve_table=[dict(quad=k, chart_label=QN[k], **{x: v for x, v in config.CURVE_SHAPES[k].items()})
                             for k in ("riskon", "growth", "riskoff", "value")],
                curve_avg=config.CURVE_AVG)
@@ -442,4 +505,5 @@ def build(prices, fred, derived, macro_json):
         res["trail"] = trails[win]
         out["windows"][win] = res
     out["band"] = dict(z=config.Z_BAND, strong=config.Z_STRONG)
+    out["follow"] = (config.SITE or {}).get("follow", {})
     return out

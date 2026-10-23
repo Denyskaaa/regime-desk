@@ -208,7 +208,7 @@ def battery_macro(px, eng, r, dates):
     rows.append(strat_rows("C4 Dollar rising -> developed instead of emerging (vs 50/50)",
                            run_weights(to_daily_weights(w, r.index), r), 0.5 * r["EFA"] + 0.5 * r["EEM"], cash))
     vix1 = z("VIX", 1)
-    timing("C5 Contrarian: cash unless VIX just spiked (control: what if you sold after spikes)", vix1 > 1.5)
+    timing("C5 Cash after a VIX spike (1M z > 1.5)", vix1 > 1.5)
     for t, key in [("DBC", "COMM"), ("GLD", "GOLD")]:
         zz = z(key)
         w = pd.DataFrame({t: (zz > 0.3).astype(float), "CASH": (zz <= 0.3).astype(float)})

@@ -3,7 +3,9 @@
 
   const S = { win: "3M", period: "m1", tab: "overview", data: null, built: null };
   const QKEYS = ["growth", "riskon", "riskoff", "value"];
-  const QNAME = { growth: "Growth", riskon: "Risk ON", riskoff: "Risk OFF", value: "Value", quality: "Quality" };
+  const QNAME = { growth: "Growth", riskon: "Risk ON", riskoff: "Risk OFF", value: "Value", quality: "Quality", tie: "Tie" };
+  const qcol = (k) => (k === "tie" ? "var(--ink-3)" : `var(--q-${k})`);
+  const leadKeys = (A) => (A.leader === "tie" ? A.tied : [A.leader]);
   const PERIODS = [["d1", "1D"], ["w1", "1W"], ["m1", "1M"], ["m3", "3M"], ["ytd", "YTD"], ["y1", "1Y"]];
   const MINUS = "−";
   const $ = (s, el = document) => el.querySelector(s);
@@ -158,12 +160,12 @@
   function mapSVG(reg, W) {
     const C = 260, H = 206, K = 0.9;
     const P = (x, y) => [C + x * H * K, C - y * H * K];
-    const lead = W.assets.leader;
+    const lead = W.assets.leader, hl = leadKeys(W.assets);
     let g = "";
     const corners = { growth: [-1, 1], riskon: [1, 1], riskoff: [-1, -1], value: [1, -1] };
     for (const k of QKEYS) {
       const [sx, sy] = corners[k];
-      g += `<rect x="${sx < 0 ? C - H : C}" y="${sy > 0 ? C - H : C}" width="${H}" height="${H}" fill="var(--q-${k})" fill-opacity="${k === lead ? 0.14 : 0.05}"/>`;
+      g += `<rect x="${sx < 0 ? C - H : C}" y="${sy > 0 ? C - H : C}" width="${H}" height="${H}" fill="var(--q-${k})" fill-opacity="${hl.includes(k) ? 0.14 : 0.05}"/>`;
     }
     g += `<rect x="${C - H}" y="${C - H}" width="${2 * H}" height="${2 * H}" fill="none" stroke="var(--line)"/>`;
     // axes with arrowheads
@@ -189,13 +191,13 @@
     if (pts.length > 1) g += `<polyline points="${pts.map(([q]) => q.join(",")).join(" ")}" fill="none" stroke="var(--ink-2)" stroke-opacity=".5" stroke-dasharray="3 3"/>`;
     pts.slice(0, -1).forEach(([[x, y], p], i) => {
       const o = (0.2 + (0.6 * i) / pts.length).toFixed(2);
-      g += `<rect x="${x - 3.5}" y="${y - 3.5}" width="7" height="7" transform="rotate(45 ${x} ${y})" fill="var(--q-${p.asset_quad})" fill-opacity="${o}" stroke="var(--surface)" stroke-width="1"><title>Week of ${fmtDate(p.date)}: ${QNAME[p.asset_quad]}</title></rect>`;
+      g += `<rect x="${x - 3.5}" y="${y - 3.5}" width="7" height="7" transform="rotate(45 ${x} ${y})" fill="${qcol(p.asset_quad)}" fill-opacity="${o}" stroke="var(--surface)" stroke-width="1"><title>Week of ${fmtDate(p.date)}: ${QNAME[p.asset_quad]}</title></rect>`;
     });
     const [ax, ay] = P(W.assets.x, W.assets.y);
-    g += `<rect class="cur-dot" x="${ax - 8}" y="${ay - 8}" width="16" height="16" transform="rotate(45 ${ax} ${ay})" fill="var(--q-${lead})" stroke="var(--ink)" stroke-width="2.4"><title>Now: ${QNAME[lead]}</title></rect>`;
+    g += `<rect class="cur-dot" x="${ax - 8}" y="${ay - 8}" width="16" height="16" transform="rotate(45 ${ax} ${ay})" fill="${qcol(lead)}" stroke="var(--ink)" stroke-width="2.4"><title>Now: ${lead === "tie" ? "tie between " + hl.map((k) => QNAME[k]).join(" and ") : QNAME[lead]}</title></rect>`;
     const right = ax < C + H - 70;
     g += `<text x="${ax + (right ? 15 : -15)}" y="${ay + 4.5}" text-anchor="${right ? "start" : "end"}" font-family="var(--f-display)" font-weight="800" font-size="13" fill="var(--ink)" paint-order="stroke" stroke="var(--surface)" stroke-width="4" stroke-linejoin="round">Now</text>`;
-    return `<svg viewBox="0 0 520 520" role="img" aria-label="${esc(`Regime map. The ${S.win === "1M" ? "1-month" : "3-month"} checklist points to ${QNAME[lead]}.`)}">${g}</svg>`;
+    return `<svg viewBox="0 0 520 520" role="img" aria-label="${esc(`Regime map. The ${S.win === "1M" ? "1-month" : "3-month"} checklist points to ${lead === "tie" ? "a tie between " + hl.map((k) => QNAME[k]).join(" and ") : QNAME[lead]}.`)}">${g}</svg>`;
   }
 
   // --------------------------------------------------------- overview ---
@@ -214,12 +216,13 @@
           <i style="width:${pct(q.against)}%;background:repeating-linear-gradient(135deg,var(--ink-3) 0 2px,transparent 2px 5px)"></i></div>
         <span class="cnt" title="${q.match} confirm, ${q.against} against">${q.match}/${q.n} ✓ ${q.against} ✗</span></div>`;
     };
-    return qs.map((q) => row(q, q.key === W.assets.leader)).join("") + row(W.quality, false);
+    const hl = leadKeys(W.assets);
+    return qs.map((q) => row(q, hl.includes(q.key))).join("") + row(W.quality, false);
   }
 
   function sigRow(s, qk) {
     const ex = { up: "▲", down: "▼", flat: "▶", flat_down: "▶▼" }[s.expect];
-    const st = { match: "✓", against: "✗", neutral: "–", na: "·" }[s.status];
+    const st = { match: "✓", against: "✗", neutral: "–", na: "·", context: "i" }[s.status];
     const ar = { up: "▲", down: "▼", flat: "▶" }[s.actual] || "";
     let val = "no data", vcls = "flat";
     if (s.status !== "na") {
@@ -228,8 +231,13 @@
       val = `${signed(s.value, dp, unit)} ${ar}`;
       vcls = s.actual === "flat" ? "flat" : dir(s.z);
     }
-    const word = { match: "Confirms", against: "Contradicts", neutral: "No clear move", na: "No data" }[s.status];
-    const zs = s.status !== "na" ? ` Move size: ${signed(s.z, 1)}σ versus a normal ${S.win === "1M" ? "month" : "3 months"}${s.date ? `, data to ${fmtDate(s.date)}` : ""}.` : "";
+    const word = { match: "Confirms", against: "Contradicts", neutral: "No clear move", na: "No data", context: "Context, not scored" }[s.status];
+    let zs = s.status !== "na" && s.status !== "context" ? ` Move size: ${signed(s.z, 1)}σ versus a normal ${S.win === "1M" ? "month" : "3 months"}${s.date ? `, data to ${fmtDate(s.date)}` : ""}.` : "";
+    if (s.status === "context") {
+      const [y, m] = (s.date || "").split("-").map(Number);
+      const when = /quarterly/i.test(s.measure || "") && y ? `Q${Math.floor((m - 1) / 3) + 1} ${y}` : fmtDate(s.date, true);
+      zs = ` Latest data: ${when}. Shown for context and not scored: it is revised and published late, so the backtest could not use it.`;
+    }
     return `<details class="sig"><summary title="${word}"><span class="st ${s.status}" aria-label="${word}">${st}</span>
       <span class="lab">${esc(s.label)}</span><span class="exp" style="color:var(--q-${qk})" aria-label="expected ${s.expect}">${ex}</span>
       <span class="val ${vcls}">${val}</span></summary>
@@ -240,25 +248,27 @@
     return [...W.quadrants, W.quality].map((q) => `<div class="qcard">
       <div class="qcard-h"><span class="tape t-${q.key}">${q.name}</span>
         <span class="cnt">${q.match}/${q.n} ✓ ${q.against} ✗</span></div>
-      <p class="qcard-blurb">${esc(q.blurb)}</p>
+      <p class="qcard-blurb"><span class="claim">Your chart:</span> ${esc(q.blurb)}</p>
       <div>${q.signals.map((s) => sigRow(s, q.key)).join("")}</div></div>`).join("");
   }
 
   function historyStrip(W, alert) {
     const tr = W.trail || [];
     if (!tr.length) return "";
-    const cols = `92px repeat(${tr.length}, minmax(9px, 1fr))`;
+    const cols = `104px repeat(${tr.length}, minmax(9px, 1fr))`;
     const mo = tr.map((p) => Number(p.date.slice(5, 7)));
     const firstChange = mo.findIndex((m) => m !== mo[0]);
     const months = mo.map((m, i) => {
       const show = i === 0 ? firstChange === -1 || firstChange >= 3 : m !== mo[i - 1];
       return `<span class="mon">${show ? MON[m - 1] : ""}</span>`;
     }).join("");
-    const a = tr.map((p) => `<span class="cell bg-${p.asset_quad}" title="Week of ${fmtDate(p.date)}: ${QNAME[p.asset_quad]}"></span>`).join("");
-    const al = (alert.hist || []).map((p) => `<span class="cell ${p.on ? "bg-alert" : "bg-none"}" title="Week of ${fmtDate(p.date)}: ${p.on ? "Risk OFF alert on" : "clear"}"></span>`).join("");
+    const hist = alert.hist || [];
+    const prov = hist.length && hist[hist.length - 1].provisional;
+    const a = tr.map((p, i) => `<span class="cell bg-${p.asset_quad}${prov && i === tr.length - 1 ? " prov" : ""}" title="Week of ${fmtDate(p.date)}: ${QNAME[p.asset_quad]}${prov && i === tr.length - 1 ? " (this week so far)" : ""}"></span>`).join("");
+    const al = hist.map((p) => `<span class="cell ${p.on ? "bg-alert" : "bg-none"}${p.provisional ? " prov" : ""}" title="Week of ${fmtDate(p.date)}: ${p.on ? "Risk OFF alert on" : p.tie ? "tie, no alert" : "clear"}${p.provisional ? " (provisional until Friday's close)" : ""}"></span>`).join("");
     return `<div class="hist"><div class="hist-grid" style="grid-template-columns:${cols}">
-      <span class="lab">Best fit (${S.win})</span>${a}<span class="lab">Risk OFF alert</span>${al}<span></span>${months}</div></div>
-      <div class="hist-legend">${QKEYS.map((k) => `<span><i class="sw bg-${k}"></i>${QNAME[k]}</span>`).join("")}<span><i class="sw bg-alert"></i>Alert on (3-month)</span></div>`;
+      <span class="lab">Best fit (${S.win})</span>${a}<span class="lab">Risk OFF alert</span>${al}<span class="lab"></span>${months}</div></div>
+      <div class="hist-legend">${QKEYS.map((k) => `<span><i class="sw bg-${k}"></i>${QNAME[k]}</span>`).join("")}<span><i class="sw bg-tie"></i>Tie</span><span><i class="sw bg-alert"></i>Alert on (3-month)</span>${prov ? `<span><i class="sw bg-none prov"></i>This week: provisional until Friday's close</span>` : ""}</div>`;
   }
 
   function alertChart(hist) {
@@ -269,7 +279,7 @@
     const Y = (v) => pt + (1 - (v + 1) / 2) * (H - pt - pb);
     const bw = (W - pl - pr) / (n - 1);
     let g = "";
-    hist.forEach((p, i) => { if (p.on) g += `<rect x="${X(i) - bw / 2}" y="${pt}" width="${bw}" height="${H - pt - pb}" fill="var(--q-riskoff)" fill-opacity=".14"/>`; });
+    hist.forEach((p, i) => { if (p.on) g += `<rect x="${X(i) - bw / 2}" y="${pt}" width="${bw}" height="${H - pt - pb}" fill="var(--q-riskoff)" fill-opacity="${p.provisional ? ".06" : ".14"}"${p.provisional ? ' stroke="var(--q-riskoff)" stroke-opacity=".5" stroke-dasharray="2 2"' : ""}/>`; });
     for (const v of [-1, 0, 1]) {
       g += `<line x1="${pl}" x2="${W - pr}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)" ${v === 0 ? "" : 'stroke-dasharray="2 3"'}/>`;
       g += `<text x="${pl - 5}" y="${Y(v) + 3.5}" text-anchor="end" font-size="10" font-family="var(--f-mono)" fill="var(--ink-3)">${v > 0 ? "+1" : v < 0 ? "−1" : "0"}</text>`;
@@ -277,23 +287,83 @@
     const line = (k) => hist.map((p, i) => `${i ? "L" : "M"}${X(i).toFixed(1)},${Y(p[k]).toFixed(1)}`).join("");
     g += `<path d="${line("lead_net")}" fill="none" stroke="var(--ink-3)" stroke-width="1.5" stroke-dasharray="4 3"/>`;
     g += `<path d="${line("net")}" fill="none" stroke="var(--q-riskoff)" stroke-width="2.2"/>`;
-    g += `<circle cx="${X(n - 1)}" cy="${Y(hist[n - 1].net)}" r="3.5" fill="var(--q-riskoff)"/>`;
+    const pv = hist[n - 1].provisional;
+    g += `<circle cx="${X(n - 1)}" cy="${Y(hist[n - 1].net)}" r="${pv ? 4 : 3.5}" fill="${pv ? "var(--surface)" : "var(--q-riskoff)"}" stroke="var(--q-riskoff)" stroke-width="2"><title>${pv ? "This week so far (provisional)" : "Latest close"}</title></circle>`;
     return `<svg class="alert-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Risk OFF score over the past year against the leading quadrant's score">${g}</svg>`;
+  }
+
+  function fridayOf(d) {
+    const t = new Date(d + "T12:00:00Z");
+    t.setUTCDate(t.getUTCDate() + (5 - t.getUTCDay()));
+    return t.toISOString().slice(0, 10);
+  }
+
+  function actionBox(A, mode) {
+    const helped = (A.overlay || []).filter((r) => r.helped_both_halves);
+    const notHelped = (A.overlay || []).filter((r) => !r.helped_both_halves);
+    const park = A.parking || [];
+    const cls = (v) => (v > 0.5 ? "up" : v < -0.5 ? "down" : "flat");
+    const title = { on: "What historically helped while the alert was on", prov: "If it confirms at Friday's close: what historically helped", off: "What historically helped when the alert was on" }[mode];
+    return `<details class="action" ${mode === "on" ? "open" : ""}>
+      <summary>${title}</summary>
+      <div class="action-body">
+        <p>Move <b>stocks and high-yield bonds</b> into <b>T-bills or short Treasuries</b> at the next day's close, and move back at the next day's close after the first Friday the alert is clear.</p>
+        <div class="action-cols">
+          <div>
+            <h3>In both halves of the backtest this improved</h3>
+            <div class="tbl-wrap"><table class="mini">
+              <thead><tr><th>Holding</th><th>Sharpe</th><th>Worst drop</th></tr></thead>
+              <tbody>${helped.map((r) => `<tr><td>${esc(r.name)} <span class="tk">${esc(r.t)}</span></td><td>${num(r.sharpe_before, 2)} → <b>${num(r.sharpe_after, 2)}</b></td><td>${num(r.dd_before, 0)}% → ${num(r.dd_after, 0)}%</td></tr>`).join("")}</tbody>
+            </table></div>
+            ${notHelped.length ? `<p class="fine">Did not reliably help: ${notHelped.map((r) => esc(r.name)).join(", ")}.</p>` : ""}
+          </div>
+          <div>
+            <h3>Where the money sat best (return a year while on)</h3>
+            <div class="tbl-wrap"><table class="mini">
+              <thead><tr><th>Park in</th><th>2008–16</th><th>2017–26</th></tr></thead>
+              <tbody>${park.map((r) => `<tr><td>${esc(r.name)}</td><td class="${cls(r["2008-16"])}">${signed(r["2008-16"], 1, "%")}</td><td class="${cls(r["2017-26"])}">${signed(r["2017-26"], 1, "%")}</td></tr>`).join("")}</tbody>
+            </table></div>
+            <p class="fine">Only cash, short Treasuries and the dollar were positive in both halves. Staples and utilities still lost money; long bonds and gold flipped sign between the halves.</p>
+          </div>
+        </div>
+        <p class="fine">Historical test results, not personal advice. Taxes are not modelled: selling in a taxable account can realise gains.</p>
+      </div>
+    </details>`;
+  }
+
+  function recent(list) {
+    if (!list || !list.length) return "";
+    const one = (e) => `${MON[Number(e.start.slice(5, 7)) - 1]} ${e.start.slice(0, 4)} (${e.weeks} wk, S&P ${signed(e.spx, 1, "%")})`;
+    return ` Last ${list.length === 1 ? "alert" : list.length}: ${list.map(one).join(", ")}.`;
   }
 
   function alertPanel(A) {
     const t = A.track;
+    const P = A.provisional;
+    const decide = P ? fmtDate(fridayOf(P.date)) : "";
     const status = A.on
-      ? `<span class="state on">On</span><span class="when">since ${fmtDate(A.since)} · ${A.weeks} week${A.weeks === 1 ? "" : "s"}</span>`
-      : `<span class="state off">Clear</span><span class="when">${A.last_on ? `last alert ended week of ${fmtDate(A.last_on)}` : "no alert in the past year"}</span>`;
+      ? `<span class="state on">On</span><span class="when">since the week of ${fmtDate(A.since)} · ${A.weeks} week${A.weeks === 1 ? "" : "s"} · confirmed at Friday's close</span>`
+      : `<span class="state off">Clear</span><span class="when">as of the close on ${fmtDate(A.official_date)}${A.last_on ? ` · last alert: week of ${fmtDate(A.last_on)}` : ""}</span>`;
+    let prov = "";
+    if (P) {
+      if (P.tie) prov = `<b>This week so far: Risk OFF is tied for first.</b> A tie is not a call. Friday's close (${decide}) decides.`;
+      else if (P.on && !A.on) prov = `<b>Provisional: turning on this week.</b> Risk OFF leads on the latest data. It becomes official only if it still leads at Friday's close (${decide}). Don't act on it before then.`;
+      else if (!P.on && A.on) prov = `<b>Provisional: clearing this week.</b> Risk OFF no longer leads on the latest data. It clears officially only if that holds at Friday's close (${decide}).`;
+      else if (P.on) prov = `This week so far: still on. Friday's close (${decide}) confirms.`;
+      else prov = `This week so far: still clear. Friday's close (${decide}) confirms.`;
+    }
     const move = ok(A.net_4w) ? ` (4 weeks ago ${signed(A.net_4w, 2)})` : "";
-    const gauge = A.on
-      ? `Risk OFF leads the 3-month checklist with a score of <b>${signed(A.net, 2)}</b>${move}.`
-      : `Risk OFF scores <b>${signed(A.net, 2)}</b>${move} and ranks ${["", "1st", "2nd", "3rd", "4th"][A.rank]} of 4. ${QNAME[A.lead]} leads at ${signed(A.lead_net, 2)}, so the gap to an alert is <b>${num(A.gap, 2)}</b>.`;
-    return `<div class="panel alert ${A.on ? "is-on" : ""}">
+    const now = P ? "On the latest data, " : "At the close, ";
+    let gauge;
+    if (A.tied && A.tied.includes("riskoff")) gauge = `${now}Risk OFF scores <b>${signed(A.net, 2)}</b>${move}, tied for first with ${A.tied.filter((k) => k !== "riskoff").map((k) => QNAME[k]).join(" and ")}.`;
+    else if (A.lead === "riskoff") gauge = `${now}Risk OFF leads the 3-month checklist with a score of <b>${signed(A.net, 2)}</b>${move}.`;
+    else gauge = `${now}Risk OFF scores <b>${signed(A.net, 2)}</b>${move} and ranks ${["", "1st", "2nd", "3rd", "4th"][A.rank]} of 4. ${QNAME[A.lead]} leads at ${signed(A.lead_net, 2)}, so the gap to an alert is <b>${num(A.gap, 2)}</b>.`;
+    const boxMode = A.on ? "on" : P && P.on ? "prov" : "off";
+    return `<div class="panel alert ${A.on ? "is-on" : ""} ${P && P.on && !A.on ? "is-prov" : ""}">
       <div class="alert-head">
         <span class="tape lg t-riskoff">Risk OFF alert</span>${status}
       </div>
+      ${prov ? `<p class="prov-note">${prov}</p>` : ""}
       <div class="alert-grid">
         <div class="alert-gauge">
           <p>${gauge}</p>
@@ -303,13 +373,15 @@
         <div class="alert-track">
           <div class="stats">
             <div><b class="down">${signed(t.spx_next3m, 1)}%</b><span>S&P a year, 3 months after an alert (average ${signed(t.spx_avg3m, 1)}%)</span></div>
-            <div><b>${t.episodes}</b><span>alerts, ${t.share_of_weeks}% of weeks</span></div>
+            <div><b>${t.episodes}</b><span>alerts, ${t.share_of_weeks}% of weeks, usually ${t.median_weeks || 3} weeks long</span></div>
             <div><b class="up">${num(t.cash_cagr, 1)}%</b><span>a year in cash during alerts (buy &amp; hold ${num(t.bh_cagr, 1)}%)</span></div>
             <div><b>${num(t.cash_sharpe, 2)}</b><span>Sharpe ratio (buy &amp; hold ${num(t.bh_sharpe, 2)})</span></div>
           </div>
-          <p class="fine">Fires when Risk OFF leads the 3-month checklist, the one call with a tested edge. To match the backtest it uses market signals only; EPS and LEI are left out because they are revised and published late. Backtest ${esc(t.period)}, after trading costs, before taxes. It missed ${esc(t.missed)}.</p>
+          ${ok(t.false_alarms) ? `<p class="fine"><b>${t.false_alarms} of ${t.episodes} alerts were false alarms:</b> the S&P rose while you were out, by ${signed(t.false_cost, 1)}% on average. The other ${t.real_alerts} avoided an average move of ${signed(t.real_saved, 1)}%. The edge comes from that imbalance.${recent(t.recent)}</p>` : ""}
+          <p class="fine">Fires when Risk OFF leads the 3-month checklist at a Friday close, the one call with a tested edge; the backtest acted at the next day's close. Market signals only (EPS and LEI are revised and published late). Backtest ${esc(t.period)}, after trading costs, before taxes. It missed ${esc(t.missed)}.</p>
         </div>
       </div>
+      ${actionBox(A, boxMode)}
     </div>`;
   }
 
@@ -370,7 +442,10 @@
   function renderOverview() {
     const { regime } = S.data;
     const W = regime.windows[S.win] || regime.windows["3M"];
-    const lead = W.assets.leader, st = W.story.strength || "weak";
+    const lead = W.assets.leader, hl = leadKeys(W.assets);
+    const fol = (regime.follow || {})[hl.length === 1 ? hl[0] : ""] || null;
+    const edge = S.win === "3M" && hl.length === 1 && fol ? (fol.tested_edge ? `<span class="pill edge">tested signal</span>` : `<span class="pill noedge">description only</span>`) : "";
+    const margin = lead === "tie" ? `<span class="pill tie">tie</span>` : `<span class="pill gap">ahead by ${num(W.assets.margin, 2)}</span>`;
     $("#overview").innerHTML = `
       ${regime.alert ? alertPanel(regime.alert) : ""}
       <div class="ov-top">
@@ -378,14 +453,14 @@
           <div class="panel-h"><h2>Regime map</h2><span class="sub">${S.win === "1M" ? "Past month (noisy)" : "Past 3 months"} · data to ${fmtDate(regime.asof, true)}</span></div>
           ${mapSVG(regime, W)}
           <div class="map-legend">
-            <span><svg width="16" height="16" aria-hidden="true"><rect x="4" y="4" width="8" height="8" transform="rotate(45 8 8)" fill="var(--q-${lead})" stroke="var(--ink)" stroke-width="2"/></svg>Now</span>
+            <span><svg width="16" height="16" aria-hidden="true"><rect x="4" y="4" width="8" height="8" transform="rotate(45 8 8)" fill="${qcol(lead)}" stroke="var(--ink)" stroke-width="2"/></svg>Now</span>
             <span class="muted">Faded marks: previous 12 weeks</span>
           </div>
           <p class="map-note">Placed by the four checklist scores below: up when Growth and Risk ON beat Risk OFF and Value, right when Risk ON and Value beat Growth and Risk OFF.</p>
         </div>
         <div class="panel read">
           <div class="panel-h" style="justify-content:space-between"><h2>The read</h2>${segWin()}</div>
-          <div class="verdict"><span class="tape lg t-${lead}">${QNAME[lead]}</span><span class="pill ${st}">${st} lead</span></div>
+          <div class="verdict">${hl.map((k) => `<span class="tape lg t-${k}">${QNAME[k]}</span>`).join(`<span class="vs">=</span>`)}${margin}${edge}</div>
           <div class="scores">${scoreRows(W)}</div>
           ${W.story.paras.map((p) => `<p>${md(p)}</p>`).join("")}
           ${W.story.backdrop.length ? `<ul class="backdrop">${W.story.backdrop.map((b) => `<li>${md(b)}</li>`).join("")}</ul>` : ""}
@@ -396,6 +471,8 @@
       <div class="panel"><div class="panel-h"><h2>Signal checklist</h2><span class="sub">Every ▲ ▼ ▶ from your chart, checked against the market over the ${S.win === "1M" ? "past month" : "past 3 months"}. Tap a row for what it measures.</span></div>
         <div class="checks">${quadCards(W)}</div></div>
       <div class="panel"><div class="panel-h"><h2>Regime history</h2><span class="sub">Each week over the past year</span></div>${historyStrip(W, regime.alert || {})}</div>`;
+    // on narrow screens start the strip at the latest week
+    document.querySelectorAll("#overview .hist").forEach((h) => { h.scrollLeft = h.scrollWidth; });
   }
 
   // ---------------------------------------------------------- markets ---
