@@ -1,0 +1,4 @@
+rule,Full,Full bench,Full dSharpe,1999-2007,1999-2007 bench,1999-2007 dSharpe,2008-16,2008-16 bench,2008-16 dSharpe,2017-26,2017-26 bench,2017-26 dSharpe
+D1 Sector momentum: top 3 of 9 by 6-month return (vs equal-weight sectors),6.3% / 0.31 / -51%,9.2% / 0.47,-0.16,5.9% / 0.22 / -40%,6.4% / 0.25,-0.03,4.2% / 0.30 / -47%,9.3% / 0.53,-0.23,9.2% / 0.43 / -33%,13.3% / 0.66,-0.23
+D2 Multi-asset trend: hold each asset only above its 200-day avg (vs holding all),5.8% / 0.57 / -11%,7.2% / 0.54,0.03,6.2% / 0.48 / -11%,8.3% / 0.72,-0.24,2.0% / 0.29 / -11%,2.2% / 0.22,0.07,8.3% / 0.84 / -6%,10.6% / 0.81,0.03
+"D3 Dual momentum: SPY or EFA, else bonds (vs SPY)",7.5% / 0.43 / -34%,8.4% / 0.41,0.02,10.0% / 0.63 / -16%,2.4% / 0.03,0.6,7.6% / 0.54 / -22%,9.1% / 0.51,0.03,7.3% / 0.36 / -34%,15.3% / 0.74,-0.38
