@@ -6,6 +6,7 @@ score is the market's best fit. Exact ties are reported as ties.
 
 Only market signals are scored. EPS and LEI are shown as context: they are
 revised and published late, so the backtest could not use them point-in-time.
+The Risk OFF alert uses the average of the last 5 daily scores (config.ALERT_DAYS).
 The yield curve is reported separately as context (it had no timing value).
 """
 import numpy as np
@@ -104,6 +105,63 @@ def status_for(expect, z):
 def arrow(z):
     b = config.Z_BAND
     return "up" if z > b else "down" if z < -b else "flat"
+
+
+# ------------------------------------------------- daily scores (vector) ---
+
+def _window_z(m, dates, months, is_yield):
+    """window_change() for many end dates at once: z of the move over `months` ending at each date
+    (NaN where window_change would return None). Matches the per-date engine exactly."""
+    m = m.dropna()
+    idx = m.index
+    pe = idx.searchsorted(dates, side="right") - 1
+    ps = idx.searchsorted(dates - pd.DateOffset(months=months), side="right") - 1
+    vol = m.diff().rolling(252, min_periods=2).std().to_numpy()
+    v = m.to_numpy()
+    ok = (pe + 1 >= 120) & (ps >= 0)
+    pe_c, ps_c = np.clip(pe, 0, None), np.clip(ps, 0, None)
+    chg = v[pe_c] - v[ps_c]
+    sd = vol[pe_c]
+    z = np.where(sd > 0, chg / (sd * np.sqrt(np.maximum(pe_c - ps_c, 1))), 0.0)
+    if is_yield:
+        z = np.where(np.abs(chg) < MIN_BP * np.sqrt(months), 0.0, z)
+    return np.where(ok, z, np.nan)
+
+
+def _status_vec(expect, z):
+    b, S = config.Z_BAND, config.Z_STRONG
+    rules = {"up": ([z > b, z < -b]), "down": ([z < -b, z > b]),
+             "flat": ([np.abs(z) <= b, np.abs(z) > S]), "flat_down": ([z <= b, z > S])}
+    return np.select(rules[expect], [1, -1], 0)
+
+
+def daily_nets(eng, dates, months=3):
+    """Each quadrant's net score (market signals only) on every date: same math as Engine.quadrant."""
+    dates = pd.DatetimeIndex(dates)
+    zc, nets, matches = {}, {}, {}
+    for q in config.QUADRANTS:
+        rows = []
+        for k, lab, e in q["signals"]:
+            m = config.MEASURES[k]
+            if m["type"] == "macro" or eng.idx.get(k) is None:
+                continue
+            if k not in zc:
+                zc[k] = _window_z(eng.idx[k], dates, months, m["type"] == "yield")
+            z = zc[k]
+            rows.append(np.where(np.isnan(z), np.nan, _status_vec(e, np.nan_to_num(z))))
+        A = np.vstack(rows) if rows else np.full((1, len(dates)), np.nan)
+        n = (~np.isnan(A)).sum(axis=0)
+        match, against = (A == 1).sum(axis=0), (A == -1).sum(axis=0)
+        nets[q["key"]] = np.round(np.where(n > 0, (match - against) / np.maximum(n, 1), 0.0), 3)
+        matches[q["key"]] = match
+    return pd.DataFrame(nets, index=dates), pd.DataFrame(matches, index=dates)
+
+
+def avg_leaders(nets, days):
+    """Leader of the `days`-day average scores on each date ('tie' when the top is shared)."""
+    a = nets.rolling(days).mean()
+    top = a.eq(a.max(axis=1), axis=0)
+    return a, top.idxmax(axis=1).where(top.sum(axis=1) == 1, "tie"), top
 
 
 # ------------------------------------------------------------ evaluation ---
@@ -262,67 +320,100 @@ def curve_context(c, tr):
 
 
 def week_complete(last_date, now=None):
-    """True once the Friday close of last_date's week has passed (4:15pm New York), so a
-    Thursday-before-a-holiday week also completes."""
+    """True once the Friday close of last_date's week has passed (4:15pm New York). Used for the
+    weekly history only: a week still in progress is shown as 'so far'."""
+    d = pd.Timestamp(last_date)
+    friday = (d + pd.Timedelta(days=4 - d.weekday())).normalize()
+    return day_complete(friday, now)
+
+
+def day_complete(last_date, now=None):
+    """True once the close of last_date has passed (4:15pm New York)."""
+    d = pd.Timestamp(last_date)
     try:
         from zoneinfo import ZoneInfo
         tz = ZoneInfo("America/New_York")
         now = (now or pd.Timestamp.now(tz="UTC")).tz_convert(tz)
-        friday = (pd.Timestamp(last_date) + pd.Timedelta(days=4 - pd.Timestamp(last_date).weekday())).normalize()
-        cutoff = pd.Timestamp(friday.year, friday.month, friday.day, 16, 15, tz=tz)
+        cutoff = pd.Timestamp(d.year, d.month, d.day, 16, 15, tz=tz)
     except Exception:  # no tz database: fall back to a fixed 4-hour offset
         now = (now or pd.Timestamp.now(tz="UTC")).tz_convert(None) - pd.Timedelta(hours=4)
-        friday = (pd.Timestamp(last_date) + pd.Timedelta(days=4 - pd.Timestamp(last_date).weekday())).normalize()
-        cutoff = friday + pd.Timedelta(hours=16, minutes=15)
+        cutoff = d.normalize() + pd.Timedelta(hours=16, minutes=15)
     return bool(now >= cutoff)
 
 
-def alert(trail, res, now=None):
-    """Risk OFF alert: Risk OFF leads the 3-month checklist (the one call with a tested edge).
-    It is official only at a week's close, as in the backtest; mid-week it is provisional."""
-    nets = {q["key"]: q["net"] for q in res["quadrants"]}
-    first = res["assets"]["first"]
-    complete = week_complete(trail[-1]["date"], now)
-    done = trail if complete else trail[:-1]          # completed weeks only
-    off_on = bool(done) and done[-1]["asset_quad"] == "riskoff"
-    weeks = streak(done, "riskoff") if off_on else 0
-    ranked = sorted(nets, key=nets.get, reverse=True)
-    hist = [dict(date=p["date"], on=p["asset_quad"] == "riskoff", tie=p["asset_quad"] == "tie",
-                 net=p["nets"]["riskoff"], lead_net=max(p["nets"].values())) for p in trail]
+def alert(eng, cal, now=None, days=None):
+    """Risk OFF alert: Risk OFF has the highest average score over the last `days` daily readings of
+    the 3-month checklist (so no single day or weekday decides it). Official at each day's close;
+    during the trading day the latest reading is provisional."""
+    days = days or config.ALERT_DAYS
+    dates = pd.DatetimeIndex(cal[-(300 + days):])
+    nets, _ = daily_nets(eng, dates)
+    avg, lead, top = avg_leaders(nets, days)
+    avg, lead, top = avg.iloc[days - 1:], lead.iloc[days - 1:], top.iloc[days - 1:]
+    on = lead == "riskoff"
+    complete = day_complete(dates[-1], now)
+    done = on if complete else on.iloc[:-1]
+    run = 0
+    for v in reversed(done.tolist()):
+        if not v:
+            break
+        run += 1
+    last = avg.iloc[-1]
+    ranked = last.sort_values(ascending=False, kind="stable")
+    first = ranked.index[0]
+    tied = [k for k in ranked.index if abs(ranked[k] - ranked.iloc[0]) < 1e-9] if lead.iloc[-1] == "tie" else []
+    other = max(v for k, v in last.items() if k != "riskoff")
+    fmt = lambda d: pd.Timestamp(d).strftime("%Y-%m-%d")
+    hist = [dict(date=fmt(d), net=round(float(avg.at[d, "riskoff"]), 3), lead_net=round(float(avg.loc[d].max()), 3),
+                 on=bool(on.at[d]), tie=bool(lead.at[d] == "tie" and top.at[d, "riskoff"])) for d in avg.index[-252:]]
     if not complete and hist:
         hist[-1]["provisional"] = True
+    on_days = done[done]
+    site = config.SITE or {}
     return dict(
-        on=off_on, weeks=weeks, since=done[-weeks]["date"] if weeks else None,
-        official_date=done[-1]["date"] if done else None,
-        last_on=next((p["date"] for p in reversed(done) if p["asset_quad"] == "riskoff"), None),
-        provisional=None if complete else dict(on=res["assets"]["leader"] == "riskoff",
-                                               tie="riskoff" in res["assets"]["tied"], date=trail[-1]["date"]),
-        net=nets["riskoff"], rank=ranked.index("riskoff") + 1, lead=first, lead_net=nets[first],
-        tied=res["assets"]["tied"], gap=round(nets[first] - nets["riskoff"], 3),
-        net_4w=trail[-5]["nets"]["riskoff"] if len(trail) >= 5 else None,
-        hist=hist, track=config.BACKTEST,
-        overlay=(config.SITE or {}).get("overlay", []), parking=(config.SITE or {}).get("parking", []),
+        rule_days=days, on=bool(run), days=run, since=fmt(done.index[-run]) if run else None,
+        official_date=fmt(done.index[-1]) if len(done) else None,
+        last_on=fmt(on_days.index[-1]) if len(on_days) else None,
+        provisional=None if complete else dict(on=bool(on.iloc[-1]), date=fmt(dates[-1]),
+                                               tie=bool(lead.iloc[-1] == "tie" and top.iloc[-1]["riskoff"])),
+        net=round(float(last["riskoff"]), 3), rank=int(list(ranked.index).index("riskoff") + 1),
+        lead=first, lead_net=round(float(ranked.iloc[0]), 3), tied=tied,
+        gap=round(float(ranked.iloc[0] - last["riskoff"]), 3), margin=round(float(last["riskoff"] - other), 3),
+        net_4w=round(float(avg["riskoff"].iloc[-21]), 3) if len(avg) > 21 else None,
+        hist=hist, track=config.BACKTEST, track_pre=site.get("track_pre"),
+        overlay=site.get("overlay", []), parking=site.get("parking", []),
     )
 
 
+def _vs(x, first=True):
+    v = x["spx"]
+    if abs(v) < 1:
+        return "about as well as in other weeks" if first else "about the same since"
+    word = "better" if v > 0 else "worse"
+    return f"about {abs(v):.0f} points a year {word} than in other weeks" if first else f"about {abs(v):.0f} points {word} since"
+
+
 def follow_line(key):
-    """What the backtest says about acting on this call (from research/site_constants.json)."""
-    f = ((config.SITE or {}).get("follow") or {}).get(key)
-    if not f:
+    """What the backtest says about acting on this call, in both eras (research/site_constants.json)."""
+    site = config.SITE or {}
+    f = (site.get("follow") or {}).get(key)
+    if not f or "pre" not in f:
         return None
     if key == "riskoff":
-        t = config.BACKTEST
-        return (f"**This is the one call with a tested edge.** In the 3 months after Risk OFF led, the S&P returned "
-                f"{_pct(t['spx_next3m'])} a year, against {_pct(t['spx_avg3m'])} on average. Staples beat "
-                f"discretionary on average, as your chart says, but staples and utilities still lost money; "
-                f"T-bills and short Treasuries were the dependable place to park.")
-    if abs(f["spx_t"]) >= 1.5:
-        more = "more" if f["spx"] > 0 else "less"
-        return (f"**No tested edge.** After a {QN[key]} call the S&P returned about {abs(f['spx']):.1f} points a "
-                f"year {more} than in other weeks over the next 3 months, but not reliably enough to act on, and "
-                f"the playbook itself did not keep paying. Treat it as a description, not a signal.")
-    return (f"**No tested edge.** After a {QN[key]} call, its playbook and the S&P did about the same over the next "
-            f"3 months as in other weeks. Treat it as a description, not a signal.")
+        t, tp = site.get("track") or config.BACKTEST, site.get("track_pre")
+        if not tp:
+            return None
+        return (f"**Mixed record.** Since 2008 the S&P returned {_pct(t['spx_next3m'])} a year in the 3 months after a "
+                f"Risk OFF alert, against {_pct(t['spx_avg3m'])} on average. Rebuilt for 1990–2008 it was the opposite: "
+                f"{_pct(tp['spx_next3m'])} against {_pct(tp['spx_avg3m'])}. It flags tightening; whether tightening hurt "
+                f"stocks has depended on the era.")
+    pre, post = f["pre"], f["post"]
+    if f.get("consistent"):
+        return (f"**Same in both eras, but weak.** Over the 3 months after {QN[key]} readings the S&P did {_vs(pre)} "
+                f"in 1990–2008, and {_vs(post, False)}. Sitting out the other weeks still cost more than it gained, so "
+                f"treat it as a tailwind, not a trading signal.")
+    return (f"**No consistent edge.** Over the 3 months after {QN[key]} readings the S&P did {_vs(pre)} in "
+            f"1990–2008, and {_vs(post, False)}. Treat it as a description, not a signal.")
 
 
 def narrative(win, res, other, trail, macro_rows, fed, ctx):
@@ -371,20 +462,10 @@ def narrative(win, res, other, trail, macro_rows, fed, ctx):
             line += " Pushing against it: " + _list(f"{s['label']} {_val(s)}" for s in anti) + "."
         out.append(line)
 
-    if win == "3M":
-        if A["leader"] == "tie":
-            if "riskoff" in A["tied"]:
-                out.append("Only an outright Risk OFF lead triggers the alert; a tie doesn't count, as in the "
-                           "backtest.")
-            else:
-                out.append("**No tested edge** for any of the tied calls. Treat them as descriptions, not signals.")
-        else:
-            fl = follow_line(L["key"])
-            if fl:
-                if L["key"] == "riskoff" and prov:
-                    fl += (" The backtest acted only on Friday closes, so this week's reading is provisional "
-                           "until Friday's close.")
-                out.append(fl)
+    if win == "3M" and A["leader"] != "tie":
+        fl = follow_line(L["key"])
+        if fl:
+            out.append(fl)
 
     sigs = next(q for q in config.QUADRANTS if q["key"] == L["key"])["signals"]
     favors = [lab for k_, lab, e in sigs if e == "up" and config.MEASURES[k_]["type"] not in ("yield", "macro")]
@@ -479,6 +560,8 @@ def build(prices, fred, derived, macro_json):
         fed = dict(ff=ff, y2=y2, spread_bp=round((y2 - ff) * 100, 1))
 
     dates = weekly_dates(prices)
+    cal = prices["SPY"].dropna().index if "SPY" in prices.columns else prices.index
+    cal = cal[cal <= end]
     results, trails = {}, {}
     for win, off_kw in config.WINDOWS.items():
         off = pd.DateOffset(**off_kw)
@@ -495,7 +578,7 @@ def build(prices, fred, derived, macro_json):
     ctx = curve_context(results["3M"]["curve"], tr) if "3M" in results else None
     leaders = {w: r["assets"]["leader"] for w, r in results.items()}
     out = dict(asof=end.strftime("%Y-%m-%d"), fed=fed, windows={}, default_window=config.DEFAULT_WINDOW,
-               trend=tr, curve_context=ctx, alert=alert(trails["3M"], results["3M"]),
+               trend=tr, curve_context=ctx, alert=alert(eng, cal),
                curve_table=[dict(quad=k, chart_label=QN[k], **{x: v for x, v in config.CURVE_SHAPES[k].items()})
                             for k in ("riskon", "growth", "riskoff", "value")],
                curve_avg=config.CURVE_AVG)

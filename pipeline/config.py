@@ -401,16 +401,15 @@ Z_STRONG = 1.0
 # replaces these at the bottom of this file; the values here are only a
 # fallback copy of the Oct 2026 run.
 # ---------------------------------------------------------------------------
-DEFAULT_WINDOW = "3M"   # the only look-back with a tested edge; 1M is shown as noisy
+DEFAULT_WINDOW = "3M"   # the steadier look-back; 1M is shown as noisy
+ALERT_DAYS = 5          # the alert uses the average of the last 5 daily scores, so no weekday matters
 
-BACKTEST = dict(  # the Risk OFF alert: Risk OFF leads the 3-month checklist at a Friday close
-    period="Jul 2008 – Oct 2026",
-    episodes=23, share_of_weeks=13, median_weeks=3,
-    spx_next3m=-10.8, spx_avg3m=12.8, commodities_next3m=-26.7,
-    cash_cagr=16.36, cash_sharpe=0.93, cash_maxdd=-34,
+BACKTEST = dict(  # the Risk OFF alert: highest 5-day average score on the 3-month checklist, since Jul 2008
+    period="Jul 2008 – Oct 2026", episodes=33, share_of_days=13, median_weeks=1,
+    spx_next3m=-9.2, spx_avg3m=12.7, cash_cagr=16.39, cash_sharpe=0.93, cash_maxdd=-34,
     bh_cagr=12.47, bh_sharpe=0.62, bh_maxdd=-47,
-    false_alarms=10, false_cost=2.4, real_alerts=13, real_saved=-6.0,
-    missed="the COVID crash of early 2020, which was too fast for a 3-month signal",
+    false_alarms=15, false_cost=1.8, real_alerts=18, real_saved=-4.7,
+    missed="the fast crashes of early 2020 and spring 2025",
 )
 
 # Yield-curve shapes over 3-month windows, 1990–2026. "during" = S&P 500 total

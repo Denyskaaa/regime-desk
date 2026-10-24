@@ -51,27 +51,27 @@ Interpretation choices worth knowing:
 - EPS uses BEA corporate profits (quarterly, lagging). LEI is a free-data proxy built from claims, hours, orders, permits, the S&P 500, the curve and sentiment. Forward P/E has no free source and is left out.
 - ISM, Chicago PMI, S&P Global PMIs, NAHB and MBA data are proprietary. Philly Fed and Empire State surveys stand in for ISM.
 
-The quadrant descriptions on the site are the chart's own claims. Only the Risk OFF call has a tested edge.
+The quadrant descriptions on the site are the chart's own claims. None of the four calls has an edge that held in both eras (see below).
 
 ## The Risk OFF alert
 
-The alert is **on** when Risk OFF is the outright best fit on the 3-month checklist at a Friday close (4:15pm New York; the following Friday if the market closed early). That is the rule the backtest used, trading at the next day's close. Mid-week the panel shows a **provisional** reading on the latest data; it becomes official only at Friday's close, and the history strip marks the current week as provisional until then.
+Every trading day the 3-month checklist is scored. The alert is **on** when Risk OFF has the highest average score over the last 5 trading days (`ALERT_DAYS` in `pipeline/config.py`). The backtest traded at the next day's close and moved back the day after it cleared. During the trading day the latest reading is shown as provisional; it becomes official at the close.
 
-When it is on, the panel shows what historically helped: moving stocks and high-yield bonds into T-bills or short Treasuries, which holdings that helped, and where money sat best while out.
+Why an average of 5 days: with a single day's reading, the day you happened to check changed the result a lot. On 2008–2026 data the Sharpe ratio was 0.95 checking on Mondays and 0.94 on Fridays, but 0.76–0.80 on Tuesday to Thursday. The 5-day average gives 0.87–0.90 whichever day you check and 0.93 acting daily, and a one-day spike can't trigger it.
+
+When it is on, the panel shows what helped after 2008: which holdings the switch to T-bills improved and where money sat best.
 
 ## What the backtest found (research/, Oct 2026)
 
-Weekly point-in-time calls, next-day execution, 5bp per trade. Curve 1990–2026; checklist Jul 2008 – Oct 2026, also split into 2008–16 and 2017–26 to check each result holds in both halves.
+Point-in-time daily scores, next-day execution, 5bp per trade, tested in two eras:
 
-- **The 3-month Risk OFF call is the one tested edge.** After it fired, the S&P returned −10.8% a year over the next 3 months, against +12.8% on average. Holding cash during alerts: 16.4% a year vs 12.5% buy-and-hold, Sharpe 0.93 vs 0.62, worst drop −34% vs −47%, and better in both halves. 23 alerts, 13% of weeks, usually 3 weeks long. 10 were false alarms (the S&P rose +2.4% on average while out); the other 13 avoided an average −6.0%. It missed the COVID crash.
-- **Growth, Risk ON and Value had no tested edge.** After those calls, the S&P and each quadrant's playbook did about the same over the next 3 months as in other weeks. Growth came closest (S&P +7.9 points a year better, t 1.8) but its own playbook did not keep paying (t 0.4).
-- **The switch raised the Sharpe ratio of every stock fund tested except energy**, in both halves, from the S&P 500 and Nasdaq-100 to small caps, ex-US, emerging markets and each sector, and of high-yield and investment-grade corporate bonds. It did not reliably help energy, commodities, gold or Treasuries.
-- **Where to park:** only T-bills, short Treasuries and the dollar were positive in both halves while the alert was on. Staples and utilities still lost money; long Treasuries and gold flipped sign between the halves.
-- **Nothing else held up in both halves:** none of 117 single playbook-item trades; fixed Risk OFF score thresholds (all worse than "Risk OFF leads"); credit, staples-vs-discretionary, copper/gold, dollar, commodity and gold trend filters; sector and dual momentum. Moving to cash after a VIX spike helped a little in both halves (Sharpe +0.1), a third of the alert's gain.
-- **The 1-month view is noise**: calls change every ~2 weeks and showed no forward value.
-- **The yield curve alone had no timing value**, and the chart mislabels the bull steepener: stocks fell while it formed. Splitting by the S&P's 200-day average separates good cuts (+12.6% a year next 3 months) from bad cuts (+1.2%).
+- **2008–2026, the checklist as the site computes it.** After an alert the S&P returned −9.2% a year over the next 3 months, against +12.7% on average. Holding cash during alerts: 16.4% a year vs 12.5% buy-and-hold, Sharpe 0.93 vs 0.62, worst drop −34% vs −47%. 33 alerts, 15 of them false alarms. It missed the fast crashes of 2020 and 2025.
+- **1990–2008, rebuilt with stand-ins** (`research/long_test.py`): the checklist's ETFs didn't exist, so sectors and styles use Ken French's industry and size/value portfolios, SPY/IWM use Vanguard index funds, LQD/HYG use Vanguard bond funds, DBC uses the S&P GSCI, Treasury ETFs use returns implied by Treasury yields, and TIPS yields before 2003 use the Cleveland Fed's real-rate estimates. The stand-ins reproduce the real checklist after 2008 (Risk OFF score correlation 0.98, same leader on 89% of days, same alert results). **Before 2008 the alert failed:** the S&P returned +23.3% a year after alerts against +9.8% on average; cash during alerts made 7.7% a year vs 9.6% buy-and-hold (Sharpe 0.30 vs 0.40); it missed the 1990, 1998, 2000–02 and 2007–08 falls. In 1994–2006 rising real yields came with strong growth and stocks kept rising, while the 2000–02 and 2007–08 bear markets came with falling yields, which the chart calls Growth.
+- **Per quadrant**, S&P over the next 3 months vs other weeks, 1990–2008 / since 2008: Growth +12 / +7 points a year (the only call that held in both eras, but trading on it lost to buy-and-hold); Risk ON −9 / +4; Risk OFF +13 / −25; Value −6 / +2.
+- **Simple price rules:** going to cash when the S&P is 10%+ below its 52-week high beat buy-and-hold on risk in both eras (1990–2026 worst drop −21% vs −55%) but gave up about half a point of return a year, and its Sharpe ratio ranged from 0.52 to 0.64 depending on the day checked (buy-and-hold 0.52). Selling after a red week was the worst rule tested (0.6% a year since 2008).
+- **Nothing else held up:** none of 117 single playbook-item trades; fixed score thresholds; credit, staples-vs-discretionary, copper/gold, dollar and commodity-trend filters; sector and dual momentum. The 1-month view is noise. The yield curve alone had no timing value.
 
-To refresh the research: run the *Research data* workflow (or `python -m research.fetch_history`), then `python -m research.backtest`, `python -m research.strategies`, `python -m research.trades` and `python -m research.site_constants`. The last one writes `research/out/site_constants.json`, which the site reads for every backtest figure it shows; the curve figures live in `CURVE_SHAPES` in `pipeline/config.py`.
+To refresh the research: run the *Research data* and *Research data (long history)* workflows (or `python -m research.fetch_history` and `python -m research.fetch_long`), then `python -m research.backtest`, `python -m research.strategies`, `python -m research.trades` and `python -m research.site_constants`. The last one writes `research/out/site_constants.json`, which the site reads for every backtest figure it shows.
 
 ## Customizing
 

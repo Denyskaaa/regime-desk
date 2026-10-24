@@ -203,7 +203,7 @@
   // --------------------------------------------------------- overview ---
   function segWin() {
     return `<div class="seg" role="group" aria-label="Look-back window">${["3M", "1M"].map((w) =>
-      `<button type="button" data-win="${w}" aria-pressed="${S.win === w}" title="${w === "1M" ? "Changes every ~2 weeks; no forward value in the backtest" : "The tested look-back"}">${w === "1M" ? "1 month · noisy" : "3 months"}</button>`).join("")}</div>`;
+      `<button type="button" data-win="${w}" aria-pressed="${S.win === w}" title="${w === "1M" ? "Changes every ~2 weeks; no forward value in the backtest" : "The steadier look-back"}">${w === "1M" ? "1 month · noisy" : "3 months"}</button>`).join("")}</div>`;
   }
 
   function scoreRows(W) {
@@ -264,11 +264,17 @@
     }).join("");
     const hist = alert.hist || [];
     const prov = hist.length && hist[hist.length - 1].provisional;
-    const a = tr.map((p, i) => `<span class="cell bg-${p.asset_quad}${prov && i === tr.length - 1 ? " prov" : ""}" title="Week of ${fmtDate(p.date)}: ${QNAME[p.asset_quad]}${prov && i === tr.length - 1 ? " (this week so far)" : ""}"></span>`).join("");
-    const al = hist.map((p) => `<span class="cell ${p.on ? "bg-alert" : "bg-none"}${p.provisional ? " prov" : ""}" title="Week of ${fmtDate(p.date)}: ${p.on ? "Risk OFF alert on" : p.tie ? "tie, no alert" : "clear"}${p.provisional ? " (provisional until Friday's close)" : ""}"></span>`).join("");
+    const a = tr.map((p, i) => `<span class="cell bg-${p.asset_quad}${prov && i === tr.length - 1 ? " prov" : ""}" title="Week of ${fmtDate(p.date)}: ${QNAME[p.asset_quad]}${prov && i === tr.length - 1 ? " (so far)" : ""}"></span>`).join("");
+    const byDate = new Map(hist.map((p) => [p.date, p]));
+    const pick = (d) => { if (byDate.has(d)) return byDate.get(d); let b = null; for (const p of hist) { if (p.date <= d) b = p; else break; } return b; };
+    const al = tr.map((w) => {
+      const p = pick(w.date);
+      if (!p) return `<span class="cell bg-none"></span>`;
+      return `<span class="cell ${p.on ? "bg-alert" : "bg-none"}${p.provisional ? " prov" : ""}" title="Week of ${fmtDate(w.date)}: ${p.on ? "alert on" : p.tie ? "tie, no alert" : "clear"} at the week's last close${p.provisional ? " (today so far)" : ""}"></span>`;
+    }).join("");
     return `<div class="hist"><div class="hist-grid" style="grid-template-columns:${cols}">
       <span class="lab">Best fit (${S.win})</span>${a}<span class="lab">Risk OFF alert</span>${al}<span class="lab"></span>${months}</div></div>
-      <div class="hist-legend">${QKEYS.map((k) => `<span><i class="sw bg-${k}"></i>${QNAME[k]}</span>`).join("")}<span><i class="sw bg-tie"></i>Tie</span><span><i class="sw bg-alert"></i>Alert on (3-month)</span>${prov ? `<span><i class="sw bg-none prov"></i>This week: provisional until Friday's close</span>` : ""}</div>`;
+      <div class="hist-legend">${QKEYS.map((k) => `<span><i class="sw bg-${k}"></i>${QNAME[k]}</span>`).join("")}<span><i class="sw bg-tie"></i>Tie</span><span><i class="sw bg-alert"></i>Alert on at the week's last close</span>${prov ? `<span><i class="sw bg-none prov"></i>Still in progress</span>` : ""}</div>`;
   }
 
   function alertChart(hist) {
@@ -292,25 +298,23 @@
     return `<svg class="alert-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Risk OFF score over the past year against the leading quadrant's score">${g}</svg>`;
   }
 
-  function fridayOf(d) {
-    const t = new Date(d + "T12:00:00Z");
-    t.setUTCDate(t.getUTCDate() + (5 - t.getUTCDay()));
-    return t.toISOString().slice(0, 10);
-  }
-
   function actionBox(A, mode) {
     const helped = (A.overlay || []).filter((r) => r.helped_both_halves);
     const notHelped = (A.overlay || []).filter((r) => !r.helped_both_halves);
     const park = A.parking || [];
     const cls = (v) => (v > 0.5 ? "up" : v < -0.5 ? "down" : "flat");
-    const title = { on: "What historically helped while the alert was on", prov: "If it confirms at Friday's close: what historically helped", off: "What historically helped when the alert was on" }[mode];
+    const both = park.filter((r) => r.t !== "SPY" && r["2008-16"] > 0 && r["2017-26"] > 0).map((r) => r.name.replace(/ \(.*\)$/, ""));
+    const lost = park.filter((r) => r.t !== "SPY" && r["2008-16"] < 0 && r["2017-26"] < 0).map((r) => r.name.replace(/ \(.*\)$/, ""));
+    const flip = park.filter((r) => r.t !== "SPY" && (r["2008-16"] > 0) !== (r["2017-26"] > 0)).map((r) => r.name.replace(/ \(.*\)$/, ""));
+    const list = (xs) => xs.length < 2 ? xs.join("") : xs.slice(0, -1).join(", ") + " and " + xs[xs.length - 1];
+    const title = { on: "What helped while it was on (2008–2026)", prov: "If it turns on at today's close: what helped (2008–2026)", off: "What helped when it was on (2008–2026)" }[mode];
     return `<details class="action" ${mode === "on" ? "open" : ""}>
       <summary>${title}</summary>
       <div class="action-body">
-        <p>Move <b>stocks and high-yield bonds</b> into <b>T-bills or short Treasuries</b> at the next day's close, and move back at the next day's close after the first Friday the alert is clear.</p>
+        <p>Since 2008, moving <b>stocks and high-yield bonds</b> into <b>T-bills or short Treasuries</b> at the next day's close, and back at the next day's close after the alert cleared, helped the holdings below. <b>Before 2008 the same switch lost money</b>, so treat this as what worked in one era, not a rule.</p>
         <div class="action-cols">
           <div>
-            <h3>In both halves of the backtest this improved</h3>
+            <h3>In both halves of 2008–2026 this improved</h3>
             <div class="tbl-wrap"><table class="mini">
               <thead><tr><th>Holding</th><th>Sharpe</th><th>Worst drop</th></tr></thead>
               <tbody>${helped.map((r) => `<tr><td>${esc(r.name)} <span class="tk">${esc(r.t)}</span></td><td>${num(r.sharpe_before, 2)} → <b>${num(r.sharpe_after, 2)}</b></td><td>${num(r.dd_before, 0)}% → ${num(r.dd_after, 0)}%</td></tr>`).join("")}</tbody>
@@ -323,7 +327,7 @@
               <thead><tr><th>Park in</th><th>2008–16</th><th>2017–26</th></tr></thead>
               <tbody>${park.map((r) => `<tr><td>${esc(r.name)}</td><td class="${cls(r["2008-16"])}">${signed(r["2008-16"], 1, "%")}</td><td class="${cls(r["2017-26"])}">${signed(r["2017-26"], 1, "%")}</td></tr>`).join("")}</tbody>
             </table></div>
-            <p class="fine">Only cash, short Treasuries and the dollar were positive in both halves. Staples and utilities still lost money; long bonds and gold flipped sign between the halves.</p>
+            <p class="fine">${both.length ? `Positive in both halves: ${esc(list(both))}.` : ""} ${lost.length ? `Lost money in both: ${esc(list(lost))}.` : ""} ${flip.length ? `Flipped between halves: ${esc(list(flip))}.` : ""}</p>
           </div>
         </div>
         <p class="fine">Historical test results, not personal advice. Taxes are not modelled: selling in a taxable account can realise gains.</p>
@@ -333,7 +337,7 @@
 
   function recent(list) {
     if (!list || !list.length) return "";
-    const one = (e) => `${MON[Number(e.start.slice(5, 7)) - 1]} ${e.start.slice(0, 4)} (${e.weeks} wk, S&P ${signed(e.spx, 1, "%")})`;
+    const one = (e) => `${MON[Number(e.start.slice(5, 7)) - 1]} ${e.start.slice(0, 4)} (${e.days} day${e.days === 1 ? "" : "s"}, S&P ${signed(e.spx, 1, "%")})`;
     return ` Last ${list.length === 1 ? "alert" : list.length}: ${list.map(one).join(", ")}.`;
   }
 
@@ -343,40 +347,51 @@
     return n;
   }
 
+  function eraTable(t, tp) {
+    const avg = (v, lab) => `<span class="avg">${lab} ${v}</span>`;
+    const r = (lab, a, b) => `<tr><td>${lab}</td><td>${a}</td><td>${b}</td></tr>`;
+    return `<div class="tbl-wrap"><table class="mini eras">
+      <thead><tr><th>Track record</th><th>2008–2026</th><th>1990–2008*</th></tr></thead><tbody>
+      ${r("S&P a year, 3 months after an alert", `<b class="down">${signed(t.spx_next3m, 1)}%</b> ${avg(signed(t.spx_avg3m, 1) + "%", "avg")}`, `<b class="up">${signed(tp.spx_next3m, 1)}%</b> ${avg(signed(tp.spx_avg3m, 1) + "%", "avg")}`)}
+      ${r("In cash during alerts, a year", `<b>${num(t.cash_cagr, 1)}%</b> ${avg(num(t.bh_cagr, 1) + "%", "hold")}`, `<b>${num(tp.cash_cagr, 1)}%</b> ${avg(num(tp.bh_cagr, 1) + "%", "hold")}`)}
+      ${r("Sharpe ratio", `<b>${num(t.cash_sharpe, 2)}</b> ${avg(num(t.bh_sharpe, 2), "hold")}`, `<b>${num(tp.cash_sharpe, 2)}</b> ${avg(num(tp.bh_sharpe, 2), "hold")}`)}
+      ${r("Alerts · false alarms", `${t.episodes} · ${t.false_alarms}`, `${tp.episodes} · ${tp.false_alarms}`)}
+      </tbody></table></div>`;
+  }
+
   function alertPanel(A, W3) {
-    const t = A.track;
+    const t = A.track, tp = A.track_pre;
     const P = A.provisional;
-    const decide = P ? fmtDate(fridayOf(P.date)) : "";
+    const N = A.rule_days || 5;
     const L = W3.assets, hl = leadKeys(L);
     const led = L.leader === "tie" ? 0 : streakOf(W3.trail || [], L.leader);
     const regime = hl.map((k) => `<span class="tape lg t-${k}">${QNAME[k]}</span>`).join(`<span class="vs">=</span>`);
     const regimeNote = L.leader === "tie" ? "tied on the 3-month checklist" :
-      `best fit on the 3-month checklist${led > 1 ? `, ${led} weeks running` : ""}${P ? " (this week so far)" : ""}`;
+      `best fit on the 3-month checklist${led > 1 ? `, ${led} weeks running` : ""}`;
     let head;
     if (A.on) {
       head = `<div class="alert-banner" role="status"><span>Risk OFF alert · On</span>
-        <small>since the week of ${fmtDate(A.since)} · ${A.weeks} week${A.weeks === 1 ? "" : "s"} · confirmed at Friday's close</small></div>`;
+        <small>since ${fmtDate(A.since)} · ${A.days} trading day${A.days === 1 ? "" : "s"} · as of the close</small></div>`;
     } else {
       const provOn = P && P.on;
       head = `<div class="alert-head">
         <div class="regime-now">${regime}<span class="when">${regimeNote}</span></div>
         <span class="state ${provOn ? "prov" : "off"}">Risk OFF alert: ${provOn ? "provisional" : "clear"}</span>
-        <span class="when">${provOn ? "officially clear as of" : "as of"} the close on ${fmtDate(A.official_date)}${A.last_on ? ` · last alert: week of ${fmtDate(A.last_on)}` : ""}</span>
+        <span class="when">${provOn ? "officially clear as of" : "as of"} the close on ${fmtDate(A.official_date)}${A.last_on ? ` · last on ${fmtDate(A.last_on)}` : " · no alert in the past year"}</span>
       </div>`;
     }
     let prov = "";
     if (P) {
-      if (P.tie) prov = `<b>This week so far: Risk OFF is tied for first.</b> A tie is not a call. Friday's close (${decide}) decides.`;
-      else if (P.on && !A.on) prov = `<b>Provisional: turning on this week.</b> Risk OFF leads on the latest data. It becomes official only if it still leads at Friday's close (${decide}). Don't act on it before then.`;
-      else if (!P.on && A.on) prov = `<b>Provisional: clearing this week.</b> Risk OFF no longer leads on the latest data. It clears officially only if that holds at Friday's close (${decide}).`;
-      else if (P.on) prov = `This week so far: still on. Friday's close (${decide}) confirms.`;
+      if (P.tie) prov = `<b>Today so far: Risk OFF is tied for first on the ${N}-day average.</b> A tie is not a call; today's close decides.`;
+      else if (P.on && !A.on) prov = `<b>Provisional: turning on today.</b> On today's prices so far, Risk OFF has the highest ${N}-day average score. It becomes official only if that holds at today's close.`;
+      else if (!P.on && A.on) prov = `<b>Provisional: clearing today.</b> On today's prices so far, Risk OFF no longer has the highest ${N}-day average. It clears only if that holds at today's close.`;
     }
-    const move = ok(A.net_4w) ? ` (4 weeks ago ${signed(A.net_4w, 2)})` : "";
-    const now = P ? "On the latest data, " : "At the close, ";
+    const move = ok(A.net_4w) ? ` (a month ago ${signed(A.net_4w, 2)})` : "";
+    const now = P ? "On today's prices so far, " : "At the close, ";
     let gauge;
-    if (A.tied && A.tied.includes("riskoff")) gauge = `${now}Risk OFF scores <b>${signed(A.net, 2)}</b>${move}, tied for first with ${A.tied.filter((k) => k !== "riskoff").map((k) => QNAME[k]).join(" and ")}.`;
-    else if (A.lead === "riskoff") gauge = `${now}Risk OFF leads the 3-month checklist with a score of <b>${signed(A.net, 2)}</b>${move}.`;
-    else gauge = `${now}Risk OFF scores <b>${signed(A.net, 2)}</b>${move} and ranks ${["", "1st", "2nd", "3rd", "4th"][A.rank]} of 4. ${QNAME[A.lead]} leads at ${signed(A.lead_net, 2)}, so the gap to an alert is <b>${num(A.gap, 2)}</b>.`;
+    if (A.tied && A.tied.includes("riskoff")) gauge = `${now}Risk OFF's ${N}-day average score is <b>${signed(A.net, 2)}</b>${move}, tied for first with ${A.tied.filter((k) => k !== "riskoff").map((k) => QNAME[k]).join(" and ")}.`;
+    else if (A.lead === "riskoff") gauge = `${now}Risk OFF has the highest ${N}-day average score, <b>${signed(A.net, 2)}</b>${move}, ahead by ${num(A.margin, 2)}.`;
+    else gauge = `${now}Risk OFF's ${N}-day average score is <b>${signed(A.net, 2)}</b>${move}, ${["", "1st", "2nd", "3rd", "4th"][A.rank]} of 4. ${QNAME[A.lead]} leads at ${signed(A.lead_net, 2)}, so the gap to an alert is <b>${num(A.gap, 2)}</b>.`;
     const boxMode = A.on ? "on" : P && P.on ? "prov" : "off";
     const cls = A.on ? "is-on" : P && P.on ? "is-prov" : "is-clear";
     const edge = A.on || (P && P.on) ? "" : ` style="border-left-color:${qcol(L.leader)}"`;
@@ -387,17 +402,12 @@
         <div class="alert-gauge">
           <p>${gauge}</p>
           ${alertChart(A.hist || [])}
-          <div class="alert-key"><span><i class="ln riskoff"></i>Risk OFF score</span><span><i class="ln lead"></i>Leading quadrant's score</span><span><i class="sw bg-alert-soft"></i>Alert on</span></div>
+          <div class="alert-key"><span><i class="ln riskoff"></i>Risk OFF, ${N}-day average</span><span><i class="ln lead"></i>Leading quadrant, ${N}-day average</span><span><i class="sw bg-alert-soft"></i>Alert on</span></div>
         </div>
         <div class="alert-track">
-          <div class="stats">
-            <div><b class="down">${signed(t.spx_next3m, 1)}%</b><span>S&P a year, 3 months after an alert (average ${signed(t.spx_avg3m, 1)}%)</span></div>
-            <div><b>${t.episodes}</b><span>alerts, ${t.share_of_weeks}% of weeks, usually ${t.median_weeks || 3} weeks long</span></div>
-            <div><b class="up">${num(t.cash_cagr, 1)}%</b><span>a year in cash during alerts (buy &amp; hold ${num(t.bh_cagr, 1)}%)</span></div>
-            <div><b>${num(t.cash_sharpe, 2)}</b><span>Sharpe ratio (buy &amp; hold ${num(t.bh_sharpe, 2)})</span></div>
-          </div>
-          ${ok(t.false_alarms) ? `<p class="fine"><b>${t.false_alarms} of ${t.episodes} alerts were false alarms:</b> the S&P rose while you were out, by ${signed(t.false_cost, 1)}% on average. The other ${t.real_alerts} avoided an average move of ${signed(t.real_saved, 1)}%. The edge comes from that imbalance.${recent(t.recent)}</p>` : ""}
-          <p class="fine">Fires when Risk OFF leads the 3-month checklist at a Friday close, the one call with a tested edge; the backtest acted at the next day's close. Market signals only (EPS and LEI are revised and published late). Backtest ${esc(t.period)}, after trading costs, before taxes. It missed ${esc(t.missed)}.</p>
+          ${tp ? `<p class="verdict-line"><b>Worked since 2008, failed before.</b> Rebuilt for 1990–2008, the same alert fired mostly in rising markets and missed ${esc(tp.missed)}.</p>${eraTable(t, tp)}` : ""}
+          <p class="fine">Since 2008, ${t.false_alarms} of ${t.episodes} alerts were false alarms (the S&P rose ${signed(t.false_cost, 1)}% on average while out); the other ${t.real_alerts} avoided ${signed(t.real_saved, 1)}% on average.${recent(t.recent)} It missed ${esc(t.missed)}.</p>
+          <p class="fine">How it works: every day the 3-month checklist is scored, and the alert is on when Risk OFF has the highest average score over the last ${N} trading days, so no single day or weekday decides it. The backtest traded at the next day's close, after costs, before taxes. Market signals only (EPS and LEI are revised and published late). *Before 2008 the checklist's ETFs didn't exist, so that era uses stand-ins (sector indices, Vanguard bond funds, a commodity index) that track the real checklist closely since 2008.</p>
         </div>
       </div>
       ${actionBox(A, boxMode)}
@@ -463,7 +473,7 @@
     const W = regime.windows[S.win] || regime.windows["3M"];
     const lead = W.assets.leader, hl = leadKeys(W.assets);
     const fol = (regime.follow || {})[hl.length === 1 ? hl[0] : ""] || null;
-    const edge = S.win === "3M" && hl.length === 1 && fol ? (fol.tested_edge ? `<span class="pill edge">tested signal</span>` : `<span class="pill noedge">description only</span>`) : "";
+    const edge = S.win === "3M" && hl.length === 1 && fol ? (hl[0] === "riskoff" ? `<span class="pill mixed">mixed record</span>` : fol.consistent ? `<span class="pill weak">weak tailwind</span>` : `<span class="pill noedge">description only</span>`) : "";
     const margin = lead === "tie" ? `<span class="pill tie">tie</span>` : `<span class="pill gap">ahead by ${num(W.assets.margin, 2)}</span>`;
     $("#overview").innerHTML = `
       ${regime.alert ? alertPanel(regime.alert, regime.windows["3M"]) : ""}
