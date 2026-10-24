@@ -1,0 +1,36 @@
+name: Research data (long history)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["research/fetch_long.py", ".github/workflows/research-long.yml"]
+
+concurrency:
+  group: research-long
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m research.fetch_long
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      - name: Commit long-history files
+        run: |
+          git config user.name "regime-desk-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add research/data/long
+          if git diff --cached --quiet; then echo "No changes"; exit 0; fi
+          git commit -q -m "research: long history with substitutes"
+          for i in 1 2 3; do git pull -q --rebase --autostash && git push -q && break; sleep 5; done
