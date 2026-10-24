@@ -337,20 +337,39 @@
     return ` Last ${list.length === 1 ? "alert" : list.length}: ${list.map(one).join(", ")}.`;
   }
 
-  function alertPanel(A) {
+  function streakOf(trail, key) {
+    let n = 0;
+    for (let i = trail.length - 1; i >= 0 && trail[i].asset_quad === key; i--) n++;
+    return n;
+  }
+
+  function alertPanel(A, W3) {
     const t = A.track;
     const P = A.provisional;
     const decide = P ? fmtDate(fridayOf(P.date)) : "";
-    const status = A.on
-      ? `<span class="state on">On</span><span class="when">since the week of ${fmtDate(A.since)} · ${A.weeks} week${A.weeks === 1 ? "" : "s"} · confirmed at Friday's close</span>`
-      : `<span class="state off">Clear</span><span class="when">as of the close on ${fmtDate(A.official_date)}${A.last_on ? ` · last alert: week of ${fmtDate(A.last_on)}` : ""}</span>`;
+    const L = W3.assets, hl = leadKeys(L);
+    const led = L.leader === "tie" ? 0 : streakOf(W3.trail || [], L.leader);
+    const regime = hl.map((k) => `<span class="tape lg t-${k}">${QNAME[k]}</span>`).join(`<span class="vs">=</span>`);
+    const regimeNote = L.leader === "tie" ? "tied on the 3-month checklist" :
+      `best fit on the 3-month checklist${led > 1 ? `, ${led} weeks running` : ""}${P ? " (this week so far)" : ""}`;
+    let head;
+    if (A.on) {
+      head = `<div class="alert-banner" role="status"><span>Risk OFF alert · On</span>
+        <small>since the week of ${fmtDate(A.since)} · ${A.weeks} week${A.weeks === 1 ? "" : "s"} · confirmed at Friday's close</small></div>`;
+    } else {
+      const provOn = P && P.on;
+      head = `<div class="alert-head">
+        <div class="regime-now">${regime}<span class="when">${regimeNote}</span></div>
+        <span class="state ${provOn ? "prov" : "off"}">Risk OFF alert: ${provOn ? "provisional" : "clear"}</span>
+        <span class="when">${provOn ? "officially clear as of" : "as of"} the close on ${fmtDate(A.official_date)}${A.last_on ? ` · last alert: week of ${fmtDate(A.last_on)}` : ""}</span>
+      </div>`;
+    }
     let prov = "";
     if (P) {
       if (P.tie) prov = `<b>This week so far: Risk OFF is tied for first.</b> A tie is not a call. Friday's close (${decide}) decides.`;
       else if (P.on && !A.on) prov = `<b>Provisional: turning on this week.</b> Risk OFF leads on the latest data. It becomes official only if it still leads at Friday's close (${decide}). Don't act on it before then.`;
       else if (!P.on && A.on) prov = `<b>Provisional: clearing this week.</b> Risk OFF no longer leads on the latest data. It clears officially only if that holds at Friday's close (${decide}).`;
       else if (P.on) prov = `This week so far: still on. Friday's close (${decide}) confirms.`;
-      else prov = `This week so far: still clear. Friday's close (${decide}) confirms.`;
     }
     const move = ok(A.net_4w) ? ` (4 weeks ago ${signed(A.net_4w, 2)})` : "";
     const now = P ? "On the latest data, " : "At the close, ";
@@ -359,10 +378,10 @@
     else if (A.lead === "riskoff") gauge = `${now}Risk OFF leads the 3-month checklist with a score of <b>${signed(A.net, 2)}</b>${move}.`;
     else gauge = `${now}Risk OFF scores <b>${signed(A.net, 2)}</b>${move} and ranks ${["", "1st", "2nd", "3rd", "4th"][A.rank]} of 4. ${QNAME[A.lead]} leads at ${signed(A.lead_net, 2)}, so the gap to an alert is <b>${num(A.gap, 2)}</b>.`;
     const boxMode = A.on ? "on" : P && P.on ? "prov" : "off";
-    return `<div class="panel alert ${A.on ? "is-on" : ""} ${P && P.on && !A.on ? "is-prov" : ""}">
-      <div class="alert-head">
-        <span class="tape lg t-riskoff">Risk OFF alert</span>${status}
-      </div>
+    const cls = A.on ? "is-on" : P && P.on ? "is-prov" : "is-clear";
+    const edge = A.on || (P && P.on) ? "" : ` style="border-left-color:${qcol(L.leader)}"`;
+    return `<div class="panel alert ${cls}"${edge}>
+      ${head}
       ${prov ? `<p class="prov-note">${prov}</p>` : ""}
       <div class="alert-grid">
         <div class="alert-gauge">
@@ -447,7 +466,7 @@
     const edge = S.win === "3M" && hl.length === 1 && fol ? (fol.tested_edge ? `<span class="pill edge">tested signal</span>` : `<span class="pill noedge">description only</span>`) : "";
     const margin = lead === "tie" ? `<span class="pill tie">tie</span>` : `<span class="pill gap">ahead by ${num(W.assets.margin, 2)}</span>`;
     $("#overview").innerHTML = `
-      ${regime.alert ? alertPanel(regime.alert) : ""}
+      ${regime.alert ? alertPanel(regime.alert, regime.windows["3M"]) : ""}
       <div class="ov-top">
         <div class="panel map-wrap">
           <div class="panel-h"><h2>Regime map</h2><span class="sub">${S.win === "1M" ? "Past month (noisy)" : "Past 3 months"} · data to ${fmtDate(regime.asof, true)}</span></div>
