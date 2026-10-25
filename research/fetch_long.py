@@ -99,7 +99,7 @@ def fred_series(sid):
     key = os.environ.get("FRED_API_KEY", "").strip()
     if key:
         r = requests.get("https://api.stlouisfed.org/fred/series/observations",
-                         params=dict(series_id=sid, api_key=key, file_type="json", observation_start="1960-01-01"),
+                         params=dict(series_id=sid, api_key=key, file_type="json"),  # full history
                          timeout=60)
         r.raise_for_status()
         obs = r.json()["observations"]
