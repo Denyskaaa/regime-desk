@@ -7,7 +7,7 @@ of episodes. A more universal rule should rest on mechanisms that don't depend o
   trend         big bear markets keep falling for months; prices below their 10-month average flag it
   recessions    earnings collapse in recessions; rising unemployment flags one (with a 1-month
                 publication lag)
-  credit        lenders demand more when defaults loom; the Baa corporate spread rising flags it
+  credit        lenders demand more when defaults loom; the Baa-Aaa corporate spread rising flags it
   yield curve   an inverted curve has preceded most US recessions since the 1950s
 The trend + macro rules sell only when both agree, so ordinary dips (no recession) are sat through.
 
@@ -58,8 +58,8 @@ def signals(m, fm):
         u = fm["UNRATE"].dropna()
         rising = (u > u.rolling(12).mean()).shift(1)              # month t-1 data is out in early month t
         out["Trend + rising unemployment"] = below & rising.reindex(m.index).fillna(False).astype(bool)
-    if {"BAA", "GS10"} <= set(fm.columns):
-        sp = (fm["BAA"] - fm["GS10"]).dropna()
+    if {"BAA", "AAA"} <= set(fm.columns):
+        sp = (fm["BAA"] - fm["AAA"]).dropna()                     # default spread, monthly since 1919
         widening = sp > sp.rolling(12).mean()
         out["Trend + widening credit spread"] = below & widening.reindex(m.index).fillna(False).astype(bool)
     if {"GS10", "TB3MS"} <= set(fm.columns):
@@ -102,8 +102,8 @@ def evaluate(start="1928-01", decades=None):
 
 if __name__ == "__main__":
     pd.set_option("display.width", 220)
-    for start in ["1928-01", "1955-01"]:
-        tab, dec = evaluate(start, decades=range(1930 if start < "1950" else 1960, 2030, 10))
+    for start, d0 in [("1928-01", 1930), ("1949-01", 1950), ("1955-01", 1960)]:
+        tab, dec = evaluate(start, decades=range(d0, 2030, 10))
         print(f"\n=== {start} to 2026 ===")
         print(tab.to_string())
         print("\nSharpe by decade:")
